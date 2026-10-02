@@ -1,5 +1,13 @@
 Name:  sf-pet-care team
 
+
+Describe which feature each member will work on and the name of the BRANCH (on git).
+A plan for every 3-4 days for EACH member.
+Meeting Schedule: Date, Time, and Modality (In-person, Zoom, etc)
+Signature of each member at the end.
+
+
+
 Team Members
 
 Ahmad Naggayev		Engineer
@@ -7,6 +15,16 @@ Zhidan Niu		Engineer
 Maurice Onyonyi		Engineer
 Jonah Robinson		Engineer
 Thomas Sasser		Engineering Manager
+
+Git URL:  https://github.com/Morioh/sf-pet-care
+GCP Project:
+
+
+Work Plan
+
+Each person has been assigned tasks in our Slack sf-pet-care Project Tracker.
+https://usfca.enterprise.slack.com/lists/T0GQ64ARG/F0C4L6E6GRM
+
 
 
 General Work Contract
