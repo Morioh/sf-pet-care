@@ -4,11 +4,10 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 ## Team Members
 
 || Name || GitHub ID || Role || Features ||
-| --- | --- | --- | --- |
-| Ahmad Naggayev |  | Engineer | |
+| Ahmad Naggayev | TBD  | Engineer | ETL integration |
 | Zhidan Niu (Jessie) | zniu4 | Engineer | Community Survey Code, documentation, README |
-| Maurice Onyonyi | Morioh | Engineer | |
-| Jonah Robinson |  | Engineer | |
+| Maurice Onyonyi | Morioh | Engineer | TBD |
+| Jonah Robinson | TBD | Engineer | TBD |
 | Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | 
 
 ---
