@@ -4,14 +4,18 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 ## Team Members
 
 | Name | GitHubID | Role / Focus |
-| --- | --- | --- |
-| Tom Sasser | [GitHub ID] | [Role / Focus] |
-| Zhidan Niu (Jessie) | zniu4 | Project documentation / README |
-| Maurice Onyonyi | [GitHub ID] | [Role / Focus] |
-| Jonah Robinson | [GitHub ID] | [Role / Focus] |
-| Ahmad Naggayev | [GitHub ID] | [Role / Focus] |
+| --- | --- | --- | --- |
+| Ahmad Naggayev |  | Engineer | |
+| Zhidan Niu (Jessie) | zniu4 | Engineer | Community Survey Code, documentation, README |
+| Maurice Onyonyi | Morioh | Engineer | |
+| Jonah Robinson |  | Engineer | |
+| Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | 
 
 ---
+
+| Git Repo | https://github.com/Morioh/sf-pet-care |
+| GCP Project | https://console.cloud.google.com/welcome/new?authuser=1&project=sf-pet-care | 
+
 
 ## Problem Statement
 
