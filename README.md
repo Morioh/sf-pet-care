@@ -8,7 +8,7 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 | Zhidan Niu (Jessie) | zniu4 | Engineer | Community Survey Code, documentation, README |
 | Maurice Onyonyi | Morioh | Engineer | TBD |
 | Jonah Robinson | TBD | Engineer | TBD |
-| Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | 
+| Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | Sprint, meetings, QA, integration, PR |
 
 ---
 
