@@ -11,8 +11,6 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 | Jonah Robinson | TBD | Engineer | TBD |
 | Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | Sprint, meetings, QA, integration, PR |
 
----
-
 | Technology | URL |
 | --- | --- |
 | Git Repo | https://github.com/Morioh/sf-pet-care |
@@ -27,7 +25,6 @@ We will combine business-location data with neighborhood population data so we c
 
 This could be useful for pet owners who want to know which neighborhoods have better access to everyday pet-care services.
 
----
 
 ## Data Sources and Integration Goal
 
