@@ -7,7 +7,7 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 | --- | --- | --- |
 | Tom Sasser | [GitHub ID] | [Role / Focus] |
 | Zhidan Niu (Jessie) | zniu4 | Project documentation / README |
-| Maurice Onyonyi | [GitHub ID] | [Role / Focus] |
+| Maurice Onyonyi | Morioh | Scripting / Registered Business |
 | Jonah Robinson | [GitHub ID] | [Role / Focus] |
 | Ahmad Naggayev | [GitHub ID] | [Role / Focus] |
 
