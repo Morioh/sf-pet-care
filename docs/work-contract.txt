@@ -10,7 +10,7 @@ Jonah Robinson		Engineer
 Thomas Sasser		Engineering Manager
 
 Git URL:  https://github.com/Morioh/sf-pet-care
-GCP Project:
+GCP Project:  https://console.cloud.google.com/welcome/new?authuser=1&project=sf-pet-care
 
 
 Work Plan
@@ -19,10 +19,10 @@ Each person has been assigned tasks in our Slack sf-pet-care Project Tracker.
 https://usfca.enterprise.slack.com/lists/T0GQ64ARG/F0C4L6E6GRM
 
 Ahmad Naggayev:		ETL Integration on 'ahmad' branch
-Zhidan Niu:		Community Survey
+Zhidan Niu:		Community Survey, documentation
 Maurice Onyonyi:	Business Location
 Jonah Robinson:		Neighborhood Analysis
-Thomas Sasser:		Sprint, meetings, QA, integration, PR
+Thomas Sasser:		Sprint, meetings, QA, integration, PR, documentation
 
 
 Sprint Plan
@@ -34,14 +34,16 @@ Ahmad Naggayev:  Create Unified ETL Pipeline, Research on how to do ETL
 Zhidan Niu:  Create Community Survey Script, Overview Documentation
 Maurice Onyonyi:  Create Business Locations Script
 Jonah Robinson:  Create SF Neighborhood Analysis Script, Create GCP Project
-Thomas Sasser:  Create tasks, Requirements, Work Contract, run meetings, QA, integration, PR
+Thomas Sasser:  Scrum Master, Work Contract, Program Management, QA, integration, PR and documentation.
 
 Everyone will participate in code reviews and PR meetings.
 
 
 Meeting Schedule
 
-We will have daily standup first, with a post-standup meeting for clarifications.  We will also have daily work sessions to ensure everyone is on track, get help where needed, etc.  Times are variable, but for the weekend:
+We will have daily standup first, with a post-standup meeting for
+clarifications.  We will also have daily work sessions to ensure everyone is on
+track, get help where needed, etc.  Times are variable, but for the weekend:
 
 Saturday 10/3/26:
 	 Standup:  1600
@@ -49,8 +51,8 @@ Saturday 10/3/26:
 	 Work Session 2:  2100
 
 Sunday 10/4/26:
-       Standup:
-       Work Session 1:  
+       Standup:  TBD
+       Work Session 1:  TBD  
 
 
 General Work Contract
