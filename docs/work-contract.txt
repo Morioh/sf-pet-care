@@ -1,13 +1,6 @@
 Name:  sf-pet-care team
 
 
-Describe which feature each member will work on and the name of the BRANCH (on git).
-A plan for every 3-4 days for EACH member.
-Meeting Schedule: Date, Time, and Modality (In-person, Zoom, etc)
-Signature of each member at the end.
-
-
-
 Team Members
 
 Ahmad Naggayev		Engineer
@@ -25,6 +18,39 @@ Work Plan
 Each person has been assigned tasks in our Slack sf-pet-care Project Tracker.
 https://usfca.enterprise.slack.com/lists/T0GQ64ARG/F0C4L6E6GRM
 
+Ahmad Naggayev:		ETL Integration on 'ahmad' branch
+Zhidan Niu:		Community Survey
+Maurice Onyonyi:	Business Location
+Jonah Robinson:		Neighborhood Analysis
+Thomas Sasser:		Sprint, meetings, QA, integration, PR
+
+
+Sprint Plan
+
+A sprint has been created in Slack called "sf-pet-car Project Tracker".  Each team member
+has assigned tasks, including:
+
+Ahmad Naggayev:  Create Unified ETL Pipeline, Research on how to do ETL
+Zhidan Niu:  Create Community Survey Script, Overview Documentation
+Maurice Onyonyi:  Create Business Locations Script
+Jonah Robinson:  Create SF Neighborhood Analysis Script, Create GCP Project
+Thomas Sasser:  Create tasks, Requirements, Work Contract, run meetings, QA, integration, PR
+
+Everyone will participate in code reviews and PR meetings.
+
+
+Meeting Schedule
+
+We will have daily standup first, with a post-standup meeting for clarifications.  We will also have daily work sessions to ensure everyone is on track, get help where needed, etc.  Times are variable, but for the weekend:
+
+Saturday 10/3/26:
+	 Standup:  1600
+	 Work Session 1:  1615
+	 Work Session 2:  2100
+
+Sunday 10/4/26:
+       Standup:
+       Work Session 1:  
 
 
 General Work Contract
@@ -68,11 +94,10 @@ as expected.
 
 GCP
 
-Engineers will use their personal GCP accounts to develop and test their code.
-One GCP account will be used for the final project (to be determined).  All
-buckets will have "-dev" and "-prod" tags appended to the name.  "-dev" is to be
-used for code creation and the data can be changed, deleted, etc.  "-prod" data
-should never be deleted.
+Engineers will use the GCP project 'sf-pet-care'.  All buckets will have "-dev"
+and "-prod" tags appended to the name.  "-dev" is to be used for code creation
+and the data can be changed, deleted, etc.  "-prod" data should never be
+deleted.
 
 
 Scripts
