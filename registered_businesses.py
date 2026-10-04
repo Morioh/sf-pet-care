@@ -12,7 +12,7 @@ All settings come from .env (copy .env.example to start):
     SODA_DATASET_URL  required; dataset endpoint
     SODA_APP_TOKEN    optional; raises Socrata's rate limits
                       (free token from https://data.sf.gov/profile/edit/developer_settings)
-    GCS_BUCKET        optional; bucket for /collect output. Empty = save to data/raw/
+    GCS_BUCKET        optional; bucket for /collect/pet-care output. Empty = save to data/raw/
     GCP_PROJECT_ID    required when GCS_BUCKET is set
     GCS_PREFIX        optional; folder inside the bucket. Empty = bucket root
 For GCS uploads, authenticate once with `gcloud auth application-default login`.
@@ -318,10 +318,3 @@ async def collect_pet_care(active_only: bool = True):
     """Download all SF pet-care businesses and save them as JSON + CSV (GCS or data/raw/)."""
     rows = await fetch_all(build_where(active_only, True, naics_prefixes=pet_prefixes(None)))
     return {"rows": len(rows), "files": await save(rows, "pet_care_businesses")}
-
-
-@app.post("/collect/all")
-async def collect_all(active_only: bool = True, sf_only: bool = True):
-    """Download every matching business location (~100k+ rows) and save as JSON + CSV."""
-    rows = await fetch_all(build_where(active_only, sf_only))
-    return {"rows": len(rows), "files": await save(rows, "business_locations")}
