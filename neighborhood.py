@@ -75,4 +75,3 @@ def download_neighborhood(dev_mode = True):
     geo_dataframe = gpd.read_file(io.BytesIO(data_bytes))
     return geo_dataframe
 
-download_neighborhood()
