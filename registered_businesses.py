@@ -8,7 +8,7 @@ Run locally:
     fastapi run registered_businesses.py    # production-style (e.g. on a server)
 Then open http://127.0.0.1:8000/docs for the interactive API docs.
 
-All settings come from .env (copy .env.example to start):
+All settings come from .env (copy .env_template to start):
     SODA_DATASET_URL  required; dataset endpoint
     SODA_APP_TOKEN    optional; raises Socrata's rate limits
                       (free token from https://data.sf.gov/profile/edit/developer_settings)
@@ -38,7 +38,7 @@ load_dotenv(Path(__file__).parent / ".env")  # real env vars still take preceden
 def env(name: str, required: bool = False) -> str:
     value = os.getenv(name, "").strip()
     if required and not value:
-        raise RuntimeError(f"{name} is not set. Add it to .env (see .env.example).")
+        raise RuntimeError(f"{name} is not set. Add it to .env (see .env_template).")
     return value
 
 
