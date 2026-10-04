@@ -5,10 +5,10 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 
 | Name | GitHub ID | Role | Features |
 | --- | --- | --- | --- |
-| Ahmad Naggayev | TBD  | Engineer | ETL integration |
+| Ahmad Naggayev | ahmadavar  | Engineer | ETL integration |
 | Zhidan Niu (Jessie) | zniu4 | Engineer | Community Survey Code, documentation, README |
-| Maurice Onyonyi | Morioh | Engineer | TBD |
-| Jonah Robinson | TBD | Engineer | TBD |
+| Maurice Onyonyi | Morioh | Engineer | Business Locations |
+| Jonah Robinson | jrobinson123 | Engineer | SF Neighborhood Analysis, GCP |
 | Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | Sprint, meetings, QA, integration, PR |
 ---
 
