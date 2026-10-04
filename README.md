@@ -2,6 +2,7 @@
 An analysis of how friendly the neighborhoods in San Francisco are to pet owners.
 
 ## Team Members
+---
 
 | Name | GitHub ID | Role | Features |
 | --- | --- | --- | --- |
@@ -18,6 +19,7 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 
 
 ## Problem Statement
+---
 
 We want to see whether people in different San Francisco neighborhoods have similar access to pet-care services such as veterinary clinics, grooming shops, and pet stores.
 
@@ -27,8 +29,10 @@ This could be useful for pet owners who want to know which neighborhoods have be
 
 
 ## Data Sources and Integration Goal
+---
 
 ### Sources
+---
 
 | # | Source & Link | Method | What it contains | Update frequency | Access requirements |
 | --- | --- | --- | --- | --- | --- |
@@ -37,6 +41,7 @@ This could be useful for pet owners who want to know which neighborhoods have be
 | 3 | [San Francisco Analysis Neighborhoods](https://data.sf.gov/api/v3/views/j2bu-swwd/query.geojson?accessType=DOWNLOAD) | File (GeoJSON) | Names and geographic boundaries of San Francisco neighborhoods | Static / infrequently updated | Public; no login required |
 
 ### Integration Goal
+---
 
 The business dataset tells us where different pet-care businesses are located in San Francisco, including veterinary clinics, pet groomers, and pet stores. The Census dataset provides population and demographic information, while the neighborhood file gives us the official boundaries for San Francisco neighborhoods.
 
