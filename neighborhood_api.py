@@ -66,7 +66,6 @@ def upload_neighborhood(dev_mode = True):
 
 
 
-#downloads neighborhood.geoson from GCP and returns it as a DataFrame
 @app.get("/download_neighborhood")
 def download_neighborhood(dev_mode = True):
     client, bucket_name = get_client(dev_mode)
