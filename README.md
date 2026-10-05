@@ -3,13 +3,19 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 
 ## Team Members
 
-| Name | GitHubID | Role / Focus |
-| --- | --- | --- |
-| Tom Sasser | [GitHub ID] | [Role / Focus] |
-| Zhidan Niu (Jessie) | zniu4 | Project documentation / README |
-| Maurice Onyonyi | [GitHub ID] | [Role / Focus] |
-| Jonah Robinson | [GitHub ID] | [Role / Focus] |
-| Ahmad Naggayev | [GitHub ID] | [Role / Focus] |
+| Name | GitHub ID | Role | Features |
+| --- | --- | --- | --- |
+| Ahmad Naggayev | ahmadavar  | Engineer | ETL integration |
+| Zhidan Niu (Jessie) | zniu4 | Engineer | Community Survey Code, documentation, README |
+| Maurice Onyonyi | morioh | Engineer | Business Locations |
+| Jonah Robinson | jrobinson123 | Engineer | SF Neighborhood Analysis, GCP |
+| Tom Sasser | tjsasser | Manager, Scrum Master, QA, Integration | Sprint, meetings, QA, integration, documentation, PR |
+---
+
+| Technology | URL |
+| --- | --- |
+| Git Repo | https://github.com/Morioh/sf-pet-care |
+| GCP Project | https://console.cloud.google.com/welcome/new?authuser=1&project=sf-pet-care | 
 
 ---
 
@@ -33,6 +39,8 @@ This could be useful for pet owners who want to know which neighborhoods have be
 | 2 | [American Community Survey 2024 5-Year Estimates](https://api.census.gov/data/2024/acs/acs5) | API | Population and demographic information for small geographic areas such as census tracts | Annual | Requires an API key |
 | 3 | [San Francisco Analysis Neighborhoods](https://data.sf.gov/api/v3/views/j2bu-swwd/query.geojson?accessType=DOWNLOAD) | File (GeoJSON) | Names and geographic boundaries of San Francisco neighborhoods | Static / infrequently updated | Public; no login required |
 
+---
+
 ### Integration Goal
 
 The business dataset tells us where different pet-care businesses are located in San Francisco, including veterinary clinics, pet groomers, and pet stores. The Census dataset provides population and demographic information, while the neighborhood file gives us the official boundaries for San Francisco neighborhoods.
@@ -45,10 +53,18 @@ We can assign each business to a neighborhood by matching its latitude and longi
 
 ## Setup Instructions (Locally)
 
-To be completed after the FastAPI code, GCP project, and environment variables are finalized.
+Setup is easy.
+
+1) git clone https://github.com/Morioh/sf-pet-care.git
+2) fastapi run acs_data.py
+3) python client_acs_data.py
+
+Upon running the client, you shall see the data in the GCP bucket.
 
 ---
 
 ## Repository Structure
 
-To be updated as the project files are added.
+Repo structure is also simple.  Everything resides in the root directory of the repo except the work contract.
+
+
