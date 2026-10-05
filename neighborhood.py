@@ -16,8 +16,6 @@ def get_client(dev_mode):
     service_account_key = os.getenv("GCP_SERVICE_ACCOUNT_KEY")
     project_id = os.getenv("GCP_PROJECT_ID")
     bucket_name = os.getenv("GCP_BUCKET_NAME")
-    print("example")
-    print(service_account_key)
 
     try: 
         if not service_account_key:
@@ -68,7 +66,6 @@ def upload_neighborhood(dev_mode = True):
 def download_neighborhood(dev_mode = True):
     client, bucket_name = get_client(dev_mode)
     bucket = client.bucket(bucket_name)
-    print(bucket_name)
     file_name = "neighborhood.geojson"
     file = bucket.blob(file_name)
     data_bytes = file.download_as_bytes()
