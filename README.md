@@ -53,10 +53,18 @@ We can assign each business to a neighborhood by matching its latitude and longi
 
 ## Setup Instructions (Locally)
 
-To be completed after the FastAPI code, GCP project, and environment variables are finalized.
+Setup is easy.
+
+1) git clone https://github.com/Morioh/sf-pet-care.git
+2) fastapi run acs_data.py
+3) python client_acs_data.py
+
+Upon running the client, you shall see the data in the GCP bucket.
 
 ---
 
 ## Repository Structure
 
-To be updated as the project files are added.
+Repo structure is also simple.  Everything resides in the root directory of the repo except the work contract.
+
+
