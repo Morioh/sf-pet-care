@@ -1,233 +1,168 @@
-# Unified ETL — Design Proposal
+# Unified ETL — Design
 
-**Author:** Ahmad Naggayev · **Branch:** `ahmad` · **Status:** proposal for team review
-**Date:** 2026-10-03
+**Author:** Ahmad Naggayev · **Branch:** `ahmad` · **Updated:** 2026-10-04
 
----
+I own the integration layer: the code that takes what each source owner produces and turns
+it into one clean, joined dataset. I don't control how anyone fetches their data — only what
+each source hands over.
 
-## 1. What this document is
-
-I own the **unified ETL pipeline**. That is the integration layer: the code that takes
-whatever each source owner produces and turns it into one clean, joined dataset.
-
-I do **not** need to control how anyone fetches their data. I need us to agree on **what each
-source returns** before we write code, so the pieces fit without rewrites later.
-
-This document proposes that contract and flags what I verified against the live sources.
+**Final metric (needs team sign-off):** pet-care businesses per 1,000 residents, per neighborhood.
 
 ---
 
-## 2. The shape of the thing
+## 1. Shape
 
 ```
 Maurice  — SF business registry (API)        ─┐
-Jessie   — Census ACS population (API)       ─┼──>  UNIFIED ETL  ──>  GCS bucket
+Jessie   — Census ACS population (API)       ─┼──>  etl/client.py  ──>  GCS bucket
 Jonah    — SF neighborhood boundaries (file) ─┘         │
-                                                        ├─ standardize
-                                                        ├─ classify pet businesses
-                                                        ├─ assign neighborhood
+                                                        ├─ validate (etl/contract.py)
+                                                        ├─ join on neighborhood name
                                                         ├─ join population
                                                         └─ compute metric
 ```
 
-**Final metric (needs team sign-off):** pet-care businesses per 1,000 residents, per neighborhood.
-Everything upstream exists to produce that number. If we change the metric, the transforms change.
-
 ---
 
-## 3. Verified findings — things that differ from our README
+## 2. Source interfaces
 
-I queried all three sources live on 2026-10-03. Several assumptions in our README do not hold.
+All three collectors are plain Python — no FastAPI in the pipeline. Each exposes
+`upload_*(dev_mode)` and `download_*(dev_mode)`, and `dev_mode` picks the `-dev` or `-prod`
+bucket per the work contract.
 
-### 3.1 The business dataset has 36 columns, not the 18 it returns by default
+| Owner | Download function | Returns | File written |
+|---|---|---|---|
+| Maurice | `download_registered_businesses(dev_mode)` | DataFrame, 374 rows | `registered_businesses.json` |
+| Jonah | `download_neighborhood(dev_mode)` | GeoDataFrame, 41 polygons | `neighborhood.geojson` |
+| Jessie | ⏳ not yet — `clean_acs_data()` returns a list of dicts | 244 tracts | `acs_sf_tracts_<DATE>.json` |
 
-The API returns a subset unless you ask for more. The authoritative column list comes from
-`https://data.sfgov.org/api/views/g8m3-pdis.json`.
+**Column specs live in `etl/contract.py`, not in this document.** One source of truth; copying
+them here would only let the two drift apart.
 
-**There is no `naic_code_description` field.** The real classification fields are:
+Maurice and Jonah now share the same `get_client(dev_mode)` pattern, the same three
+environment variables, and both overwrite a single file. Jessie's script still uses
+`GCP_DEV_BUCKET` and writes a new dated file each run — worth aligning.
 
-| Field | Note |
-|---|---|
-| `self_reported_naics_code` | numeric NAICS, self-reported |
-| `lic_code_description` | license category text |
-| `lic_code_descriptions_list` | multiple categories |
-
-Any contract naming `naic_code_description` will fail.
-
-### 3.2 `location` is a nested GeoJSON Point, not lat/lon columns
-
-```json
-"location": {"type": "Point", "coordinates": [-122.0453, 37.96]}
-```
-
-Note the order: **longitude first, then latitude**. Flat `latitude` / `longitude` columns must be
-extracted, they do not exist in the response.
-
-### 3.3 The dataset already contains a neighborhood column
-
-`neighborhoods_analysis_boundaries` — SF has already assigned each business to the same
-41 "Analysis Neighborhoods" that Jonah's GeoJSON defines.
-
-**This is the most important open question for the team.** If that column is populated well,
-we may not need a spatial join at all. See section 7.
-
-### 3.4 Row counts — the data needs filtering
-
-| Filter | Rows |
-|---|---|
-| All records | 367,825 |
-| `city = 'San Francisco'` | 295,739 |
-| …and still open (`location_end_date IS NULL`) | 102,119 |
-| …and has coordinates | **99,399** |
-
-The raw feed includes closed businesses and businesses registered in SF but located elsewhere
-(the first record I pulled was in Concord). ~3% of SF records have no coordinates.
-
-### 3.5 Pet classification cannot be done by business name
-
-Name matching on `dba_name`:
-
-| Term | Matches | Problem |
-|---|---|---|
-| `pet` | 1,914 | matches **car**pet**, **Pet**aluma |
-| `vet` | 366 | matches "Corvette", "Velvet" |
-| `groom` | 82 | plausible |
-| `paws` | 128 | plausible |
-| `animal` | 103 | plausible |
-
-Real samples returned for "pet": `Abbey Carpet`, `24/7 Carpet Care`, `5000 Puppets`.
-
-**Classification must use NAICS / LIC codes.** This decision drives our entire result and
-must be written down in the README.
-
-### 3.6 Census API returns HTTP 200 on failure
-
-Without a key it returns an **HTML page titled "Missing Key" with status 200**, not a 401.
-Naive code will treat it as success and parse garbage. The extractor must validate the
-response body, not just the status code. Key: https://api.census.gov/data/key_signup.html
-
-### 3.7 Both API URLs redirect
-
-`data.sfgov.org` → `data.sf.gov` (HTTP 301). `requests` follows redirects by default; `curl`
-needs `-L`.
-
-### 3.8 The GeoJSON is one FeatureCollection
-
-41 features, `MultiPolygon` geometry, neighborhood name in property **`nhood`**, 1.7 MB.
-It is a single object — if we ever load it into BigQuery it must be split to newline-delimited
-first. GeoPandas reads it as-is.
-
----
-
-## 4. Proposed data contract
-
-Each source module exposes one function returning a DataFrame. Source type does not matter —
-API, file, or scrape all end as a DataFrame.
-
-### Maurice — `fetch_businesses() -> pd.DataFrame`
-
-| Column | Type | From |
-|---|---|---|
-| `business_id` | str | `uniqueid` |
-| `dba_name` | str | `dba_name` |
-| `address` | str | `full_business_address` |
-| `latitude` | float | `location.coordinates[1]` |
-| `longitude` | float | `location.coordinates[0]` |
-| `naics_code` | str | `self_reported_naics_code` |
-| `lic_description` | str | `lic_code_description` |
-| `sf_neighborhood` | str | `neighborhoods_analysis_boundaries` |
-
-Filters applied at source: `city = 'San Francisco'`, `location_end_date IS NULL`,
-`location IS NOT NULL`.
-
-### Jessie — `fetch_census() -> pd.DataFrame`
-
-| Column | Type | Note |
-|---|---|---|
-| `tract_geoid` | str | must join to a geography we can map |
-| `total_population` | int | `B01003_001E` |
-
-### Jonah — `fetch_neighborhoods() -> gpd.GeoDataFrame`
-
-| Column | Type | From |
-|---|---|---|
-| `nhood` | str | property `nhood` |
-| `geometry` | MultiPolygon | CRS must be **EPSG:4326** |
-
-### Division of labour
-
-- **Source owners:** extract, rename to the contract, drop invalid rows, basic type casting.
-- **Unified ETL (me):** pet classification, neighborhood assignment, census reconciliation,
-  cross-source validation, final metric, write to GCS.
-
-Rationale: classification and joins are shared business logic. If three people each implement
-their own version we get three different answers.
-
----
-
-## 5. Pipeline stages
+### Open ask for Jessie
 
 ```python
-businesses    = fetch_businesses()
-census        = fetch_census()
-neighborhoods = fetch_neighborhoods()
-
-businesses = standardize(businesses)
-pet        = classify_pet_businesses(businesses)      # NAICS / LIC rule
-pet        = assign_neighborhood(pet, neighborhoods)  # or use existing column
-pop        = reconcile_census_to_neighborhoods(census, neighborhoods)
-final      = compute_metrics(pet, pop)                # per 1,000 residents
-
-validate(final)
-save_to_gcs(final)
+download_acs(dev_mode=True) -> pd.DataFrame   # geoid as str, population as int
 ```
 
----
-
-## 6. Open decisions for the team
-
-1. **Which source is the scraped one?** Canvas requires *"FastAPI code for scraping at least
-   one data source."* We currently have two APIs and one file download. None is HTML scraping.
-2. **Use `neighborhoods_analysis_boundaries` or do our own spatial join?**
-3. **What is the pet-business classification rule?** Which NAICS / LIC codes count.
-4. **How do Census tracts map to neighborhoods?** They do not nest cleanly.
-5. **Raw and processed stored separately, or one output for now?**
-6. **Confirm the final metric.**
+Her `clean_acs_data()` already produces the right records; it needs wrapping in a
+DataFrame and a bucket read, matching the pattern the other two use.
 
 ---
 
-## 7. The spatial join question
+## 3. Verified findings
 
-Our README says we will assign businesses to neighborhoods by matching coordinates to polygons.
-But the business dataset **already has** `neighborhoods_analysis_boundaries`.
+Checked against the live sources on 2026-10-03/04. Several README assumptions did not hold.
 
-**Option A — use the existing column.** Free, no geometry handling, no CRS issues.
-Risk: unknown null rate, and we are trusting SF's assignment.
+**Pet businesses cannot be found by name.** Searching `dba_name` for "pet" returns 1,914 rows
+including *Abbey Carpet*, *24/7 Carpet Care* and addresses in *Petaluma*. Classification uses
+NAICS prefixes instead, matched by prefix because the codes are self-reported and sometimes
+truncated:
 
-**Option B — do our own spatial join** with GeoPandas `sjoin` (or `ST_CONTAINS` in BigQuery).
-Demonstrates the technique and is defensible for the report. Costs CRS alignment and compute.
+| Prefix | Category | Count |
+|---|---|---|
+| `54194` | Veterinary services | 61 |
+| `81291` | Pet care — grooming, boarding, walking | 302 |
+| `45391` | Pet and pet supplies stores | 11 |
 
-**Recommendation:** measure the null rate in that column first, then decide. If it is well
-populated, use it as the primary and run our own join as a cross-check — that validation is
-itself a good result for the report.
+**The raw feed needs filtering.** 367,825 records total → 295,739 in San Francisco → 102,119
+still open → 99,399 with coordinates. It includes closed businesses and businesses registered
+in SF but located elsewhere.
+
+**`location` arrives as a nested GeoJSON Point** with coordinates ordered **[longitude, latitude]**.
+Maurice's script flattens it to `longitude` / `latitude` columns and drops the original.
+
+**The Census API returns HTTP 200 on failure** — without a key it serves an HTML page titled
+"Missing Key", not a 401. Code that only checks the status code will parse garbage.
+
+**Both API URLs redirect** (`data.sfgov.org` → `data.sf.gov`). `httpx` and `requests` need
+`follow_redirects` / `-L`.
+
+**The GeoJSON is one FeatureCollection**, 41 MultiPolygon features, name in property `nhood`
+(Jonah renames it to `neighborhood`). Must be split to newline-delimited before any BigQuery load.
 
 ---
 
-## 8. Known risks
+## 4. Pipeline
+
+```python
+# etl/client.py
+businesses    = load_businesses(dev_mode)     # Maurice's download_registered_businesses()
+neighborhoods = load_neighborhoods(dev_mode)  # Jonah's download_neighborhood()
+census        = load_acs(dev_mode)            # None until Jessie ships hers
+
+check_businesses(businesses)                  # etl/contract.py
+check_neighborhoods(neighborhoods)
+check_join(businesses, neighborhoods)         # assert the join before relying on it
+
+result = integrate_sources(businesses, neighborhoods, census)
+save_output(result, dev_mode)                 # processed/ in the bucket
+```
+
+Each source sits behind a small adapter so a missing interface is visible rather than fatal.
+When Jessie's function lands, `load_acs()` becomes one line.
+
+---
+
+## 5. Decisions
+
+### Spatial join is not needed — RESOLVED 2026-10-04
+
+Measured on live data: **all 35 neighbourhood values in the business file match a boundary
+name exactly. Zero orphans.** The column is 99.9% populated (99,288 of 99,399 rows). Six
+boundaries simply have no pet businesses.
+
+Maurice now emits the column as `neighborhood`, the same name Jonah uses, so the join is a
+plain merge. No `ST_CONTAINS`, no GeoPandas in the pipeline, no CRS alignment. `check_join()`
+asserts it rather than trusting it.
+
+The 8 businesses with no neighbourhood are the **same 8** that have no coordinates, so a
+spatial join would recover none of them.
+
+### ⚠️ OPEN — census tracts → neighbourhoods
+
+| | |
+|---|---|
+| Census gives | 244 tracts keyed by 11-char `geoid` |
+| Boundaries give | 41 neighbourhoods keyed by name |
+| Shared key | **none** |
+
+Without a mapping there is no population denominator and the headline metric cannot be
+computed. This is the last real blocker.
+
+Options: a published SF tract↔neighbourhood crosswalk, or compute tract centroids and test
+which polygon contains each — the one place GeoPandas is still justified, and only for 244
+rows once, not per business per run.
+
+Whichever we choose goes in the README, because it changes the numbers.
+
+### Still to confirm
+
+- Raw and processed stored separately, or one output for now?
+- Confirm the metric is pet businesses per 1,000 residents.
+
+---
+
+## 6. Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| No scraped source | fails an explicit requirement | resolve at 2026-10-03 meeting |
-| Pet classification rule is a judgement call | determines the entire result | document the rule in README |
-| Tract → neighborhood mismatch | population denominator wrong | pick and state a rule |
-| Census key missing | extractor silently returns HTML | validate body, key in `.env` |
-| ~3% of SF businesses lack coordinates | small undercount | log and report the count |
-| CRS mismatch | join silently produces zero matches | assert EPSG:4326 both sides |
+| Tract→neighbourhood unmapped | no denominator, no metric | section 5 — needs a team decision |
+| No service-account key locally | `client.py` writes output to disk instead of GCS | accept the GCP owner invite, then mint a key |
+| Pet classification rule | determines the entire result | NAICS prefixes, documented in README |
+| Jessie's file naming differs | ETL must guess which file is current | align on overwrite-single-file, as Maurice and Jonah now do |
+| 8 of 374 businesses unplaced | small undercount | `check_businesses` reports the count every run |
+| `geoid` read as int | leading zero lost, join fails silently | `check_census` asserts 11 characters |
+| Census key missing | HTML returned with HTTP 200 | validate the body, key in `.env` |
 
 ---
 
-## 9. Credentials
+## 7. Credentials
 
-No keys in code. Census key in `.env` as `CENSUS_API_KEY`, listed in `.env_template`,
-loaded with `python-dotenv`. GCP access via service account path in `GCP_SERVICE_ACCOUNT_KEY`.
-Per the work contract, scripts take a `dev` flag selecting the `-dev` or `-prod` bucket.
+No keys in code. Census key in `.env` as `CENSUS_API_KEY`, listed in `.env_template`, loaded
+with `python-dotenv`. GCP access via `GCP_SERVICE_ACCOUNT_KEY` pointing at a file path that is
+never committed — `.gitignore` covers `.env`, `*-key.json` and `service-account*.json`.

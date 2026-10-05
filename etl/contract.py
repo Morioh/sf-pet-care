@@ -1,50 +1,61 @@
-"""
-Shared data contract for the sf-pet-care unified ETL.
+"""Shared data contract for the sf-pet-care unified ETL.
 
-Each source owner imports this and runs it against their DataFrame before
-opening a PR. If it passes, the unified ETL can consume your output without
-anyone having to read your code.
+Run the relevant check against your DataFrame before opening a PR. If it passes,
+the unified ETL can consume your output without anyone reading your code.
 
     from contract import check_businesses
-    df = fetch_businesses()
+    df = download_registered_businesses(dev_mode=True)
     check_businesses(df)      # raises if the contract is not met
 
-Why this exists: a wrong column NAME crashes loudly and is easy to fix. A wrong
+Column names below are the ones each collector ACTUALLY produces, verified by
+running their code live on 2026-10-04. Nobody is asked to rename anything.
+
+Why bother: a wrong column NAME crashes loudly and is easy to fix. A wrong
 column TYPE, or latitude and longitude the wrong way round, fails silently and
 produces a dataset that looks fine and is wrong. This catches both.
 """
 
 import pandas as pd
 
+# Accepted spellings for a text column. pandas 3 reports "str";
+# pandas 2 reports "object". Both are fine.
+TEXT = {"str", "object", "string"}
+REAL = {"float64", "float32"}
+WHOLE = {"int64", "int32"}
+
 
 # --------------------------------------------------------------------------
-# What each source must return
+# What each source returns
 # --------------------------------------------------------------------------
 
+# Maurice - registered_businesses.py -> download_registered_businesses(dev_mode)
 BUSINESSES = {
-    "business_id":     "object",    # str  — uniqueid from the API
-    "dba_name":        "object",    # str  — trading name
-    "address":         "object",    # str  — full_business_address
-    "latitude":        "float64",   # float — from location.coordinates[1]
-    "longitude":       "float64",   # float — from location.coordinates[0]
-    "naics_code":      "object",    # str  — self_reported_naics_code
-    "lic_description": "object",    # str  — lic_code_description
-    "sf_neighborhood": "object",    # str  — neighborhoods_analysis_boundaries
+    "uniqueid": TEXT,                  # stable business id
+    "dba_name": TEXT,                  # trading name
+    "full_business_address": TEXT,     # street address
+    "neighborhood": TEXT,              # join key - same name as Jonah's
+    "self_reported_naics_code": TEXT,  # 54194 / 81291 / 45391
+    "pet_category": TEXT,              # veterinary / pet_care / pet_store
+    "longitude": REAL,                 # flattened from the GeoJSON Point
+    "latitude": REAL,
 }
 
+# Jessie - acs_data.py
 CENSUS = {
-    "tract_geoid":      "object",   # str — keep as string, leading zeros matter
-    "total_population": "int64",    # int — ACS B01003_001E
+    "geoid": TEXT,        # 11-char tract GEOID, leading zeros matter
+    "population": WHOLE,  # ACS B01003_001E
 }
 
-NEIGHBORHOODS = {
-    "nhood":    "object",           # str — neighborhood name
-    "geometry": "geometry",         # shapely MultiPolygon, CRS EPSG:4326
+# Jonah - neighborhood.py -> download_neighborhood(dev_mode)
+NEIGHBOURHOODS = {
+    "neighborhood": TEXT,
+    "geometry": {"geometry"},
 }
+NEIGHBORHOODS = NEIGHBOURHOODS  # alias, both spellings work
 
 
 # --------------------------------------------------------------------------
-# Checks
+# Generic check
 # --------------------------------------------------------------------------
 
 def _check(df, spec, name):
@@ -61,71 +72,99 @@ def _check(df, spec, name):
     if len(df) == 0:
         raise ValueError(f"{name}: returned 0 rows")
 
-    problems = []
-    for col, want in spec.items():
-        if want == "geometry":
-            continue
-        got = str(df[col].dtype)
-        if want == "float64" and got not in ("float64", "float32"):
-            problems.append(f"  {col}: expected float, got {got}")
-        elif want == "int64" and got not in ("int64", "int32"):
-            problems.append(f"  {col}: expected int, got {got}")
-        elif want == "object" and got != "object":
-            problems.append(f"  {col}: expected str, got {got}")
+    problems = [
+        f"  {col}: expected one of {sorted(allowed)}, got {df[col].dtype}"
+        for col, allowed in spec.items()
+        if str(df[col].dtype) not in allowed
+    ]
     if problems:
         raise TypeError(f"{name}: wrong column types\n" + "\n".join(problems))
 
-    extra = [c for c in df.columns if c not in spec]
-    print(f"OK  {name}: {len(df):,} rows, all required columns present")
-    if extra:
-        print(f"    (extra columns, fine to keep: {extra})")
+    extra = len(df.columns) - len(spec)
+    print(f"OK  {name}: {len(df):,} rows, all required columns present"
+          + (f" (+{extra} extra, fine to keep)" if extra > 0 else ""))
     return True
 
 
+# --------------------------------------------------------------------------
+# Per-source checks
+# --------------------------------------------------------------------------
+
 def check_businesses(df):
+    """Maurice's businesses: coordinates sane, join key populated."""
     _check(df, BUSINESSES, "businesses")
 
-    # San Francisco sanity box. Catches swapped lat/lon immediately: SF is
-    # about 37.7 N, -122.4 W. If these are reversed nothing will match later
-    # and the pipeline will silently produce an empty join.
-    lat_ok = df["latitude"].between(37.6, 37.9).mean()
-    lon_ok = df["longitude"].between(-123.2, -122.3).mean()
+    lon, lat = df["longitude"], df["latitude"]
+    usable = lon.notna() & lat.notna()
+    if usable.sum() == 0:
+        raise ValueError("businesses: every longitude/latitude is empty")
+
+    # San Francisco sits near 37.7 N, -122.4 W. If these two are swapped the
+    # numbers still look like numbers, every later join quietly returns nothing,
+    # and no error is raised anywhere. Hence an explicit range check.
+    lat_ok = lat[usable].between(37.6, 37.9).mean()
+    lon_ok = lon[usable].between(-123.2, -122.3).mean()
     if lat_ok < 0.9 or lon_ok < 0.9:
         raise ValueError(
-            f"businesses: coordinates look wrong for San Francisco\n"
+            "businesses: coordinates are not San Francisco\n"
             f"  latitude in range:  {lat_ok:.1%} (want >90%)\n"
             f"  longitude in range: {lon_ok:.1%} (want >90%)\n"
-            f"  most likely cause: latitude and longitude are swapped.\n"
-            f"  the API returns location.coordinates as [longitude, latitude]."
+            "  most likely cause: longitude and latitude are swapped."
         )
-    print(f"    coordinates look like San Francisco")
+    print(f"    coordinates look like San Francisco ({usable.sum()}/{len(df)} rows)")
+
+    blank = df["neighborhood"].isna().sum()
+    if blank:
+        print(f"    note: {blank} row(s) have no neighborhood and will not be counted")
     return True
 
 
 def check_census(df):
+    """Jessie's ACS: no missing-data sentinels, geoid still a string."""
     _check(df, CENSUS, "census")
-    if (df["total_population"] < 0).any():
-        raise ValueError("census: negative population values present")
-    print(f"    population total: {df['total_population'].sum():,}")
+
+    # ACS uses large negative sentinels (e.g. -666666666) for "no data".
+    if (df["population"] < 0).any():
+        raise ValueError("census: negative population present "
+                         "(ACS uses -666666666 for missing)")
+
+    bad = df["geoid"].astype(str).str.len() != 11
+    if bad.any():
+        raise ValueError(
+            f"census: {bad.sum()} geoid(s) are not 11 characters, "
+            f"e.g. {df.loc[bad, 'geoid'].iloc[0]!r}\n"
+            "  usually means geoid was read as an int and lost its leading zero."
+        )
+    print(f"    {len(df)} tracts, population {df['population'].sum():,}")
     return True
 
 
 def check_neighborhoods(gdf):
-    _check(gdf, NEIGHBORHOODS, "neighborhoods")
+    """Jonah's boundaries: right CRS, expected polygon count."""
+    _check(gdf, NEIGHBOURHOODS, "neighborhoods")
 
     crs = getattr(gdf, "crs", None)
-    if crs is None:
-        raise ValueError("neighborhoods: no CRS set. Expected EPSG:4326.")
-    if "4326" not in str(crs):
-        raise ValueError(
-            f"neighborhoods: CRS is {crs}, expected EPSG:4326.\n"
-            f"  fix with: gdf = gdf.to_crs('EPSG:4326')\n"
-            f"  a CRS mismatch makes the spatial join return zero matches "
-            f"without raising an error."
-        )
+    if crs is not None and "4326" not in str(crs):
+        raise ValueError(f"neighborhoods: CRS is {crs}, expected EPSG:4326.\n"
+                         "  fix with: gdf = gdf.to_crs('EPSG:4326')")
     if len(gdf) != 41:
-        print(f"    note: {len(gdf)} neighborhoods (expected 41) — worth checking")
-    print(f"    CRS {crs}, {len(gdf)} polygons")
+        print(f"    note: {len(gdf)} polygons (expected 41)")
+    print(f"    CRS {crs or 'not set'}, {len(gdf)} polygons")
+    return True
+
+
+def check_join(businesses, neighborhoods):
+    """The join the whole pipeline rests on. Assert it, don't assume it."""
+    b = set(businesses["neighborhood"].dropna())
+    n = set(neighborhoods["neighborhood"].dropna())
+    orphans = b - n
+    if orphans:
+        raise ValueError(
+            f"join: {len(orphans)} business neighborhood(s) match no boundary: "
+            f"{sorted(orphans)[:5]}"
+        )
+    print(f"OK  join: all {len(b)} business neighborhoods match a boundary "
+          f"({len(n) - len(b)} boundaries have no pet businesses)")
     return True
 
 
@@ -133,7 +172,7 @@ if __name__ == "__main__":
     print(__doc__)
     for label, spec in [("businesses", BUSINESSES),
                         ("census", CENSUS),
-                        ("neighborhoods", NEIGHBORHOODS)]:
+                        ("neighborhoods", NEIGHBOURHOODS)]:
         print(f"\n{label}:")
-        for col, typ in spec.items():
-            print(f"  {col:<18} {typ}")
+        for col, allowed in spec.items():
+            print(f"  {col:<28} {'/'.join(sorted(allowed))}")
