@@ -19,7 +19,7 @@ file is missing is skipped with a warning instead of crashing the run.
 
 Acquisition wiring (2026-10-16):
     Jonah    sources/neighborhood.py           upload_neighborhood      WIRED
-    Maurice  sources/registered_businesses.py  upload_registered_...    next
+    Maurice  sources/registered_businesses.py  upload_registered_...    WIRED
     Jessie   sources/acs_data.py               upload_to_gcs            later
 """
 
@@ -83,7 +83,18 @@ def acquire(dev_mode=True, dry_run=False):
             log.info("acquire neighborhood: uploaded neighborhood.geojson")
             done["neighborhood"] = "uploaded"
 
-    # Maurice and Jessie are wired in the next steps.
+    rb = _source("registered_businesses")  # Maurice
+    if rb:
+        if dry_run:
+            df = rb.fetch_registered_businesses_data_from_api()
+            log.info("acquire businesses: fetched %d rows (DRY RUN, not uploaded)", len(df))
+            done["registered_businesses"] = f"fetched {len(df)} (dry run)"
+        else:
+            rb.upload_registered_businesses(dev_mode)
+            log.info("acquire businesses: uploaded registered_businesses.json")
+            done["registered_businesses"] = "uploaded"
+
+    # Jessie is wired in the next step.
     return done
 
 
