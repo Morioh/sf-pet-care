@@ -3,7 +3,9 @@ import os
 import pandas as pd
 import requests
 import streamlit as st
+from dotenv import load_dotenv
 
+load_dotenv()
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
 CATEGORIES = ["veterinary", "pet_care", "pet_store"]
 
