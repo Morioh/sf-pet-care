@@ -3,20 +3,28 @@
 Combines the team's data sources into one processed dataset: pet-care
 businesses per neighbourhood, normalised by population.
 
-    python client.py            # dev bucket
-    python client.py --prod     # prod bucket
+Run from the repo root:
+    python -m etl.pipeline              # dev bucket
+    python -m etl.pipeline --prod       # prod bucket
+    python -m etl.pipeline --dry-run    # no bucket writes at all
 
-Each source sits behind a small adapter that calls the OWNER'S OWN function.
-Nothing is reimplemented here, so a change on their side shows up as a real
-failure rather than silently diverging logic.
+Flow:  acquire  -> internet -> RAW files in the bucket   (each owner's upload_*)
+       load     -> RAW files in the bucket -> DataFrames (each owner's download_*)
+       validate -> integrate -> save PROCESSED csv to the bucket
 
-Interfaces as of 2026-10-04:
-    Maurice  download_registered_businesses(dev_mode) -> DataFrame   ready
-    Jonah    download_neighborhood(dev_mode)          -> GeoDataFrame ready
-    Jessie   not yet a DataFrame function                            NOT WIRED
+Each source sits behind a small adapter that calls the OWNER'S OWN function
+in sources/. Nothing is reimplemented here, so a change on their side shows
+up as a real failure rather than silently diverging logic. A source whose
+file is missing is skipped with a warning instead of crashing the run.
+
+Acquisition wiring (2026-10-16):
+    Jonah    sources/neighborhood.py           upload_neighborhood      WIRED
+    Maurice  sources/registered_businesses.py  upload_registered_...    next
+    Jessie   sources/acs_data.py               upload_to_gcs            later
 """
 
 import argparse
+import importlib
 import logging
 import os
 import sys
@@ -35,12 +43,52 @@ logging.basicConfig(
 )
 log = logging.getLogger("etl")
 
-PROCESSED_DIR = Path(__file__).parent / "data" / "processed"
+PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"  # repo root
 CATEGORIES = ("veterinary", "pet_care", "pet_store")
 
 
+def _source(name):
+    """Import sources/<name>.py, or return None if it isn't there yet.
+
+    Lets the pipeline run with whatever sources are ready: a missing file is
+    a warning, not a crash.
+    """
+    try:
+        return importlib.import_module(f"sources.{name}")
+    except ImportError as e:
+        log.warning("source %s not available (%s) - skipped", name, e)
+        return None
+
+
 # ---------------------------------------------------------------------------
-# Source adapters
+# Step 1 - acquire: internet -> RAW files in the bucket
+# ---------------------------------------------------------------------------
+
+def acquire(dev_mode=True, dry_run=False):
+    """Refresh each wired source's raw file in the bucket.
+
+    dry_run fetches from the internet (proves the source is reachable and
+    parses) but uploads nothing.
+    """
+    done = {}
+
+    nb = _source("neighborhood")  # Jonah
+    if nb:
+        if dry_run:
+            gdf = nb.fetch_and_clean_neighborhood_data_from_internet()
+            log.info("acquire neighborhood: fetched %d polygons (DRY RUN, not uploaded)", len(gdf))
+            done["neighborhood"] = f"fetched {len(gdf)} (dry run)"
+        else:
+            nb.upload_neighborhood(dev_mode)
+            log.info("acquire neighborhood: uploaded neighborhood.geojson")
+            done["neighborhood"] = "uploaded"
+
+    # Maurice and Jessie are wired in the next steps.
+    return done
+
+
+# ---------------------------------------------------------------------------
+# Step 2 - load: RAW files in the bucket -> DataFrames
 # ---------------------------------------------------------------------------
 
 def load_businesses(dev_mode=True):
@@ -49,7 +97,9 @@ def load_businesses(dev_mode=True):
     Reads the bucket. Without credentials, falls back to his own API fetch so
     the pipeline is still testable -- both are his functions, same columns.
     """
-    import registered_businesses as rb
+    rb = _source("registered_businesses")
+    if rb is None:
+        raise RuntimeError("businesses source missing - cannot integrate without it")
 
     try:
         df = rb.download_registered_businesses(dev_mode=dev_mode)
@@ -63,7 +113,9 @@ def load_businesses(dev_mode=True):
 
 def load_neighborhoods(dev_mode=True):
     """Jonah's neighbourhood polygons, same fallback pattern."""
-    import neighborhood as nb
+    nb = _source("neighborhood")
+    if nb is None:
+        raise RuntimeError("neighborhood source missing - cannot integrate without it")
 
     try:
         gdf = nb.download_neighborhood(dev_mode=dev_mode)
@@ -95,7 +147,7 @@ def load_acs(dev_mode=True):
 
 def validate_sources(businesses, neighborhoods):
     """Fail loudly before the join, not silently after it."""
-    import contract
+    from etl import contract
 
     contract.check_businesses(businesses)
     contract.check_neighborhoods(neighborhoods)
@@ -196,6 +248,31 @@ def save_output(df, dev_mode=True, dry_run=False):
     return str(path)
 
 
+def run(dev_mode=True, dry_run=False):
+    """Full pipeline: acquire -> load -> validate -> integrate -> save.
+
+    This is what the API's /run-etl endpoint will call.
+    """
+    acquired = acquire(dev_mode, dry_run)
+
+    businesses = load_businesses(dev_mode)
+    neighborhoods = load_neighborhoods(dev_mode)
+    census = load_acs(dev_mode)
+
+    validate_sources(businesses, neighborhoods)
+    businesses, neighborhoods = standardize_sources(businesses, neighborhoods)
+    result = integrate_sources(businesses, neighborhoods, census)
+    target = save_output(result, dev_mode, dry_run)
+
+    return {
+        "acquired": acquired,
+        "neighborhoods": len(result),
+        "businesses_placed": int(result["businesses_total"].sum()),
+        "output": target,
+        "_result": result,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description="sf-pet-care unified ETL")
     ap.add_argument("--prod", action="store_true", help="use the -prod bucket")
@@ -207,17 +284,11 @@ def main():
              dev_mode, ", DRY RUN" if args.dry_run else "")
 
     try:
-        businesses = load_businesses(dev_mode)
-        neighborhoods = load_neighborhoods(dev_mode)
-        census = load_acs(dev_mode)
-
-        validate_sources(businesses, neighborhoods)
-        businesses, neighborhoods = standardize_sources(businesses, neighborhoods)
-        result = integrate_sources(businesses, neighborhoods, census)
-        target = save_output(result, dev_mode, args.dry_run)
+        summary = run(dev_mode, args.dry_run)
     except Exception:
         log.exception("ETL FAILED")
         return 1
+    result, target = summary.pop("_result"), summary["output"]
 
     log.info("=== done: %d neighbourhoods -> %s ===", len(result), target)
     print()
