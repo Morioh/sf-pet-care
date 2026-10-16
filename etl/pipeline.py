@@ -1,26 +1,22 @@
 """Unified ETL for sf-pet-care.
 
 Combines the team's data sources into one processed dataset: pet-care
-businesses per neighbourhood, normalised by population.
+businesses per neighbourhood.
 
 Run from the repo root:
     python -m etl.pipeline              # dev bucket
     python -m etl.pipeline --prod       # prod bucket
     python -m etl.pipeline --dry-run    # no bucket writes at all
 
-Flow:  acquire  -> internet -> RAW files in the bucket   (each owner's upload_*)
-       load     -> RAW files in the bucket -> DataFrames (each owner's download_*)
-       validate -> integrate -> save PROCESSED csv to the bucket
+Four functions, one per API endpoint:
+    get_neighborhoods()  Jonah   SF website -> bucket -> table   (refreshed by run_etl)
+    get_businesses()     Maurice SF API     -> bucket -> table   (refreshed by run_etl)
+    get_census()         Jessie  bucket -> table  (load only: ACS changes yearly and
+                                                    needs her Census key, so she uploads it)
+    run_etl()            calls the three, validates, integrates, saves processed CSV
 
-Each source sits behind a small adapter that calls the OWNER'S OWN function
-in sources/. Nothing is reimplemented here, so a change on their side shows
-up as a real failure rather than silently diverging logic. A source whose
-file is missing is skipped with a warning instead of crashing the run.
-
-Acquisition wiring (2026-10-16):
-    Jonah    sources/neighborhood.py           upload_neighborhood      WIRED
-    Maurice  sources/registered_businesses.py  upload_registered_...    WIRED
-    Jessie   sources/acs_data.py               upload_acs               WIRED
+Each worker calls the OWNER'S OWN functions in sources/. Nothing is
+reimplemented here, so a change on their side shows up as a real failure.
 """
 
 import argparse
@@ -41,6 +37,7 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s %(message)s",
     datefmt="%H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)  # hide per-request lines
 log = logging.getLogger("etl")
 
 PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"  # repo root
@@ -48,117 +45,77 @@ CATEGORIES = ("veterinary", "pet_care", "pet_store")
 
 
 def _source(name):
-    """Import sources/<name>.py, or return None if it isn't there yet.
-
-    Lets the pipeline run with whatever sources are ready: a missing file is
-    a warning, not a crash.
-    """
+    """Import sources/<name>.py, or return None if it isn't there yet."""
     try:
         return importlib.import_module(f"sources.{name}")
     except ImportError as e:
-        log.warning("source %s not available (%s) - skipped", name, e)
+        log.warning("source %s not available (%s)", name, e)
         return None
 
 
 # ---------------------------------------------------------------------------
-# Step 1 - acquire: internet -> RAW files in the bucket
+# The three source workers
 # ---------------------------------------------------------------------------
 
-def acquire(dev_mode=True, dry_run=False):
-    """Refresh each wired source's raw file in the bucket.
+def get_neighborhoods(dev_mode=True, dry_run=False, refresh=True):
+    """Jonah: return the neighbourhood polygons.
 
-    dry_run fetches from the internet (proves the source is reachable and
-    parses) but uploads nothing.
+    refresh=True  re-fetch from the website and overwrite the bucket file first
+    refresh=False just read what is in the bucket (read-only API endpoint)
+    dry_run=True  fetch from the website and return it, bucket untouched
     """
-    done = {}
-
-    nb = _source("neighborhood")  # Jonah
-    if nb:
-        if dry_run:
-            gdf = nb.fetch_and_clean_neighborhood_data_from_internet()
-            log.info("acquire neighborhood: fetched %d polygons (DRY RUN, not uploaded)", len(gdf))
-            done["neighborhood"] = f"fetched {len(gdf)} (dry run)"
-        else:
-            nb.upload_neighborhood(dev_mode)
-            log.info("acquire neighborhood: uploaded neighborhood.geojson")
-            done["neighborhood"] = "uploaded"
-
-    rb = _source("registered_businesses")  # Maurice
-    if rb:
-        if dry_run:
-            df = rb.fetch_registered_businesses_data_from_api()
-            log.info("acquire businesses: fetched %d rows (DRY RUN, not uploaded)", len(df))
-            done["registered_businesses"] = f"fetched {len(df)} (dry run)"
-        else:
-            rb.upload_registered_businesses(dev_mode)
-            log.info("acquire businesses: uploaded registered_businesses.json")
-            done["registered_businesses"] = "uploaded"
-
-    acs = _source("acs_data")  # Jessie
-    if acs:
-        if dry_run:
-            df = acs.clean_acs_data(os.getenv("CENSUS_API_KEY"))
-            log.info("acquire census: fetched %d tracts (DRY RUN, not uploaded)", len(df))
-            done["acs"] = f"fetched {len(df)} (dry run)"
-        else:
-            acs.upload_acs(dev_mode)
-            log.info("acquire census: uploaded acs.json")
-            done["acs"] = "uploaded"
-
-    return done
-
-
-# ---------------------------------------------------------------------------
-# Step 2 - load: RAW files in the bucket -> DataFrames
-# ---------------------------------------------------------------------------
-
-def load_businesses(dev_mode=True):
-    """Maurice's pet-care businesses.
-
-    Reads the bucket. Without credentials, falls back to his own API fetch so
-    the pipeline is still testable -- both are his functions, same columns.
-    """
-    rb = _source("registered_businesses")
-    if rb is None:
-        raise RuntimeError("businesses source missing - cannot integrate without it")
-
-    try:
-        df = rb.download_registered_businesses(dev_mode=dev_mode)
-        log.info("businesses: %d rows from the bucket", len(df))
-    except Exception as e:
-        log.warning("bucket read failed (%s); using Maurice's API fetch", type(e).__name__)
-        df = rb.fetch_registered_businesses_data_from_api()
-        log.info("businesses: %d rows from the SF API", len(df))
-    return df
-
-
-def load_neighborhoods(dev_mode=True):
-    """Jonah's neighbourhood polygons, same fallback pattern."""
     nb = _source("neighborhood")
     if nb is None:
-        raise RuntimeError("neighborhood source missing - cannot integrate without it")
+        raise RuntimeError("sources/neighborhood.py is missing")
 
-    try:
-        gdf = nb.download_neighborhood(dev_mode=dev_mode)
-        log.info("neighborhoods: %d polygons from the bucket", len(gdf))
-    except Exception as e:
-        log.warning("bucket read failed (%s); using Jonah's source fetch", type(e).__name__)
+    if dry_run:
         gdf = nb.fetch_and_clean_neighborhood_data_from_internet()
-        log.info("neighborhoods: %d polygons from the source URL", len(gdf))
+        log.info("neighborhoods: %d polygons fetched (DRY RUN, not uploaded)", len(gdf))
+        return gdf
+
+    if refresh:
+        nb.upload_neighborhood(dev_mode)
+    gdf = nb.download_neighborhood(dev_mode)
+    log.info("neighborhoods: %d polygons (%s)", len(gdf),
+             "refreshed in bucket" if refresh else "read from bucket")
     return gdf
 
 
-def load_acs(dev_mode=True):
-    """Jessie's census tracts from the bucket.
+def get_businesses(dev_mode=True, dry_run=False, refresh=True):
+    """Maurice: return the pet businesses. Same switches as get_neighborhoods."""
+    rb = _source("registered_businesses")
+    if rb is None:
+        raise RuntimeError("sources/registered_businesses.py is missing")
 
-    The Census API returns every value as text, so population is converted
-    to a number here (her function stays unchanged).
+    if dry_run:
+        df = rb.fetch_registered_businesses_data_from_api()
+        log.info("businesses: %d rows fetched (DRY RUN, not uploaded)", len(df))
+        return df
+
+    if refresh:
+        rb.upload_registered_businesses(dev_mode)
+    df = rb.download_registered_businesses(dev_mode)
+    log.info("businesses: %d rows (%s)", len(df),
+             "refreshed in bucket" if refresh else "read from bucket")
+    return df
+
+
+def get_census(dev_mode=True):
+    """Jessie: read acs.json from the bucket (she uploads it with her own key).
+
+    Load only - no refresh. The Census API returns every value as text, so
+    population is converted to a number here; her file stays unchanged.
+    Returns None if her source file or acs.json is missing.
     """
     acs = _source("acs_data")
     if acs is None:
         return None
+    try:
+        df = acs.download_acs(dev_mode=dev_mode)
+    except Exception as e:
+        log.warning("census: could not read acs.json (%s) - continuing without it", type(e).__name__)
+        return None
 
-    df = acs.download_acs(dev_mode=dev_mode)
     df["geoid"] = df["geoid"].astype(str)
     df["population"] = pd.to_numeric(df["population"], errors="coerce").astype("Int64")
     log.info("census: %d tracts from the bucket", len(df))
@@ -276,16 +233,14 @@ def save_output(df, dev_mode=True, dry_run=False):
     return str(path)
 
 
-def run(dev_mode=True, dry_run=False):
-    """Full pipeline: acquire -> load -> validate -> integrate -> save.
+def run_etl(dev_mode=True, dry_run=False):
+    """The boss: get all three sources, validate, integrate, save.
 
-    This is what the API's /run-etl endpoint will call.
+    This is what POST /etl (and Cloud Scheduler) calls.
     """
-    acquired = acquire(dev_mode, dry_run)
-
-    businesses = load_businesses(dev_mode)
-    neighborhoods = load_neighborhoods(dev_mode)
-    census = load_acs(dev_mode)
+    neighborhoods = get_neighborhoods(dev_mode, dry_run)
+    businesses = get_businesses(dev_mode, dry_run)
+    census = get_census(dev_mode)
 
     validate_sources(businesses, neighborhoods, census)
     businesses, neighborhoods = standardize_sources(businesses, neighborhoods)
@@ -293,8 +248,9 @@ def run(dev_mode=True, dry_run=False):
     target = save_output(result, dev_mode, dry_run)
 
     return {
-        "acquired": acquired,
-        "neighborhoods": len(result),
+        "neighborhoods": len(neighborhoods),
+        "businesses": len(businesses),
+        "census_tracts": None if census is None else len(census),
         "businesses_placed": int(result["businesses_total"].sum()),
         "output": target,
         "_result": result,
@@ -312,7 +268,7 @@ def main():
              dev_mode, ", DRY RUN" if args.dry_run else "")
 
     try:
-        summary = run(dev_mode, args.dry_run)
+        summary = run_etl(dev_mode, args.dry_run)
     except Exception:
         log.exception("ETL FAILED")
         return 1
