@@ -4,6 +4,9 @@
 # API server (FastAPI) - from the dev branch
 fastapi[standard]>=0.112
 
+# Web app
+streamlit>=1.40
+
 # Data sources + ETL
 pandas>=2.0
 geopandas>=1.0          # neighborhood.py (Jonah)
