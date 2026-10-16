@@ -1,16 +1,3 @@
-"""sf-pet-care REST API (Cloud Run service 1).
-
-Run from the repo root:
-    fastapi dev api/main.py      # then open http://127.0.0.1:8000/docs
-
-GET reads data. POST runs the ETL.
-    GET  /neighborhoods   Jonah's polygons (GeoJSON)
-    GET  /businesses      Maurice's pet businesses
-    GET  /census          Jessie's census tracts
-    GET  /processed       the combined result (Streamlit reads this)
-    POST /etl             refresh sources + combine + save (Cloud Scheduler calls this)
-"""
-
 from fastapi import FastAPI, Response
 
 from etl import pipeline

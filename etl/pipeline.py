@@ -1,16 +1,3 @@
-"""sf-pet-care ETL: pet-care businesses per San Francisco neighborhood.
-
-Run from the repo root:
-    python -m etl.pipeline
-
-    get_neighborhoods()  Jonah's polygons from the bucket
-    get_businesses()     Maurice's pet businesses from the bucket
-    get_census()         Jessie's census tracts from the bucket
-    run_etl()            refresh the sources, combine them, save the result
-
-Each function calls the owner's own code in sources/.
-"""
-
 import io
 
 import pandas as pd
@@ -30,15 +17,12 @@ def get_businesses(dev_mode=True):
 
 
 def get_census(dev_mode=True):
-    """Jessie uploads acs.json with her Census key; we only read it.
-    The Census API sends numbers as text, so population is converted."""
     df = acs_data.download_acs(dev_mode)
     df["population"] = pd.to_numeric(df["population"], errors="coerce")
     return df
 
 
 def check_sources(businesses, neighborhoods):
-    """Stop before combining if the two tables can't be joined correctly."""
     if businesses.empty or neighborhoods.empty:
         raise ValueError("a source came back empty")
     missing = set(businesses["neighborhood"].dropna()) - set(neighborhoods["neighborhood"])
@@ -47,7 +31,6 @@ def check_sources(businesses, neighborhoods):
 
 
 def combine(businesses, neighborhoods):
-    """One row per neighborhood: how many businesses of each type."""
     counts = pd.crosstab(businesses["neighborhood"], businesses["pet_category"])
     counts = counts.reindex(columns=CATEGORIES, fill_value=0)
 
@@ -68,18 +51,15 @@ def save_result(result, dev_mode=True):
 
 
 def get_result(dev_mode=True):
-    """Read the saved result back (for the API's /processed endpoint)."""
     client, bucket_name = neighborhood.get_client(dev_mode)
     data = client.bucket(bucket_name).blob(RESULT_FILE).download_as_bytes()
     return pd.read_csv(io.BytesIO(data))
 
 
 def run_etl(dev_mode=True):
-    # 1. refresh the raw files from the websites (census is uploaded by Jessie)
     neighborhood.upload_neighborhood(dev_mode)
     registered_businesses.upload_registered_businesses(dev_mode)
 
-    # 2. read them back, check, combine, save
     neighborhoods = get_neighborhoods(dev_mode)
     businesses = get_businesses(dev_mode)
     check_sources(businesses, neighborhoods)

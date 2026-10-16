@@ -1,14 +1,3 @@
-"""sf-pet-care web app (Cloud Run service 2).
-
-Reads everything from the API - never from the bucket directly.
-
-Run locally (API first, in another terminal):
-    fastapi dev api/main.py
-    streamlit run streamlit/app.py
-
-API_URL points at the API; defaults to the local one.
-"""
-
 import os
 
 import pandas as pd
@@ -21,7 +10,7 @@ CATEGORIES = ["veterinary", "pet_care", "pet_store"]
 st.set_page_config(page_title="SF Pet Care", layout="wide")
 
 
-@st.cache_data(ttl=600)  # re-ask the API at most every 10 minutes
+@st.cache_data(ttl=600)
 def get(path):
     r = requests.get(f"{API_URL}{path}", timeout=60)
     r.raise_for_status()
@@ -38,25 +27,22 @@ except requests.RequestException as e:
     st.error(f"Could not reach the API: {e}")
     st.stop()
 
-# ---- filters (sidebar) ----------------------------------------------------
 st.sidebar.header("Filters")
 hoods = st.sidebar.multiselect("Neighborhoods", sorted(summary["neighborhood"]),
                                help="Leave empty to show all")
 cats = st.sidebar.multiselect("Business type", CATEGORIES, default=CATEGORIES)
 
 shown = summary[summary["neighborhood"].isin(hoods)] if hoods else summary
-places = businesses.dropna(subset=["neighborhood"])  # same 366 the pipeline counts
+places = businesses.dropna(subset=["neighborhood"])
 places = places[places["pet_category"].isin(cats)]
 if hoods:
     places = places[places["neighborhood"].isin(hoods)]
 
-# ---- headline numbers -----------------------------------------------------
 c1, c2, c3 = st.columns(3)
 c1.metric("Pet-care businesses", int(shown[cats].sum().sum()))
 c2.metric("Neighborhoods shown", len(shown))
 c3.metric("Neighborhoods with none", int((shown[cats].sum(axis=1) == 0).sum()))
 
-# ---- chart + table --------------------------------------------------------
 st.subheader("Businesses per neighborhood")
 chart = shown.set_index("neighborhood")[cats]
 chart = chart.loc[chart.sum(axis=1).sort_values(ascending=False).index]
