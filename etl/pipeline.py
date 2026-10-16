@@ -20,7 +20,7 @@ file is missing is skipped with a warning instead of crashing the run.
 Acquisition wiring (2026-10-16):
     Jonah    sources/neighborhood.py           upload_neighborhood      WIRED
     Maurice  sources/registered_businesses.py  upload_registered_...    WIRED
-    Jessie   sources/acs_data.py               upload_to_gcs            later
+    Jessie   sources/acs_data.py               upload_acs               WIRED
 """
 
 import argparse
@@ -94,7 +94,17 @@ def acquire(dev_mode=True, dry_run=False):
             log.info("acquire businesses: uploaded registered_businesses.json")
             done["registered_businesses"] = "uploaded"
 
-    # Jessie is wired in the next step.
+    acs = _source("acs_data")  # Jessie
+    if acs:
+        if dry_run:
+            df = acs.clean_acs_data(os.getenv("CENSUS_API_KEY"))
+            log.info("acquire census: fetched %d tracts (DRY RUN, not uploaded)", len(df))
+            done["acs"] = f"fetched {len(df)} (dry run)"
+        else:
+            acs.upload_acs(dev_mode)
+            log.info("acquire census: uploaded acs.json")
+            done["acs"] = "uploaded"
+
     return done
 
 
@@ -139,30 +149,35 @@ def load_neighborhoods(dev_mode=True):
 
 
 def load_acs(dev_mode=True):
-    """Jessie's census data -- NOT WIRED YET.
+    """Jessie's census tracts from the bucket.
 
-    TODO(jessie): when download_acs(dev_mode) exists, this becomes:
-        import acs_data
-        return acs_data.download_acs(dev_mode=dev_mode)
-
-    Returns None rather than inventing data. The population denominator is
-    simply absent from the output until her function is real.
+    The Census API returns every value as text, so population is converted
+    to a number here (her function stays unchanged).
     """
-    log.warning("census: SKIPPED -- no DataFrame function on Jessie's branch yet")
-    return None
+    acs = _source("acs_data")
+    if acs is None:
+        return None
+
+    df = acs.download_acs(dev_mode=dev_mode)
+    df["geoid"] = df["geoid"].astype(str)
+    df["population"] = pd.to_numeric(df["population"], errors="coerce").astype("Int64")
+    log.info("census: %d tracts from the bucket", len(df))
+    return df
 
 
 # ---------------------------------------------------------------------------
 # Pipeline stages
 # ---------------------------------------------------------------------------
 
-def validate_sources(businesses, neighborhoods):
+def validate_sources(businesses, neighborhoods, census=None):
     """Fail loudly before the join, not silently after it."""
     from etl import contract
 
     contract.check_businesses(businesses)
     contract.check_neighborhoods(neighborhoods)
     contract.check_join(businesses, neighborhoods)
+    if census is not None:
+        contract.check_census(census)
 
 
 def standardize_sources(businesses, neighborhoods):
@@ -207,14 +222,16 @@ def integrate_sources(businesses, neighborhoods, census=None):
     for col in ("businesses_total",) + CATEGORIES:
         out[col] = out[col].fillna(0).astype(int)
 
+    # Census is loaded and validated, but tracts (GEOID) and neighbourhoods
+    # (name) share no key. Until the team picks a tract->neighbourhood
+    # mapping (docs/etl-design.md section 5), population stays empty.
+    out["population"] = pd.NA
+    out["businesses_per_1k"] = pd.NA
     if census is None:
-        out["population"] = pd.NA
-        out["businesses_per_1k"] = pd.NA
         log.warning("integrate: no census source -- population and per-1k left empty")
     else:
-        raise NotImplementedError(
-            "Census merge needs a tract->neighbourhood mapping; see docs/etl-design.md section 5"
-        )
+        log.warning("integrate: census loaded (%d tracts) but no tract->neighbourhood "
+                    "mapping yet -- population and per-1k left empty", len(census))
 
     return out.sort_values("businesses_total", ascending=False).reset_index(drop=True)
 
@@ -270,7 +287,7 @@ def run(dev_mode=True, dry_run=False):
     neighborhoods = load_neighborhoods(dev_mode)
     census = load_acs(dev_mode)
 
-    validate_sources(businesses, neighborhoods)
+    validate_sources(businesses, neighborhoods, census)
     businesses, neighborhoods = standardize_sources(businesses, neighborhoods)
     result = integrate_sources(businesses, neighborhoods, census)
     target = save_output(result, dev_mode, dry_run)

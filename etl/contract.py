@@ -21,7 +21,7 @@ import pandas as pd
 # pandas 2 reports "object". Both are fine.
 TEXT = {"str", "object", "string"}
 REAL = {"float64", "float32"}
-WHOLE = {"int64", "int32"}
+WHOLE = {"int64", "int32", "Int64", "Int32"}  # capital I = nullable ints
 
 
 # --------------------------------------------------------------------------
