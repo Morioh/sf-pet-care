@@ -56,8 +56,8 @@ We can assign each business to a neighborhood by matching its latitude and longi
 Setup is easy.
 
 1) git clone https://github.com/Morioh/sf-pet-care.git
-2) fastapi run acs_data.py
-3) python client_acs_data.py
+2) fastapi run neighborhood_api.py
+3) python call_neighborhood_api.py
 
 Upon running the client, you shall see the data in the GCP bucket.
 
