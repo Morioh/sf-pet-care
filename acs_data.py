@@ -61,33 +61,32 @@ def download_data():
     }
 
     response = requests.get(CENSUS_URL,
-                            params=params,
-                            timeout=30)
+                            params= params,
+                            timeout = 38)
 
 
     response.raise_for_status()
 
-    return response.json()
+    json_data =  response.json()
+    return json_data
 
 
 
 #clean Census data and keep the fields we need. 
 def clean_data(raw_data):
     final_data = []
-
-    headers =raw_data[0]
     rows = raw_data[1:]
 
     for i in rows:
-        old = dict(zip(headers, i))
-        state = old["state"]
-        county= old["county"]
-        tract = old["tract"]
+        tract_name= i[0]
+        population = int(i[1])
+        income = i[2]
+        state = i[3]
+        county = i[4]
+        tract = i[5]
         geoid = state+ county+tract
-        text = old["B01003_001E"]
-        population = int(text)
-        income = old["B19013_001E"]
 
+        real_income = None
         if income is None:
             real_income = None
         elif income =="-666666666":
@@ -96,13 +95,11 @@ def clean_data(raw_data):
             real_income = None
         else:
             real_income = int(income)
-
-        dataSet = {
-            "geoid": geoid,
-            "tract_name": old["NAME"],
-            "population": population,
-            "income": real_income
-        }
+        dataSet = dict()
+        dataSet["geoid"] = geoid
+        dataSet["tract_name"] = tract_name
+        dataSet["population"] = population
+        dataSet["income"] = real_income 
         final_data.append(dataSet)
     return final_data
 
@@ -115,12 +112,10 @@ def upload_to_gcs(data, dev_mode = True):
     filename = "acs.json"
     file = bucket.blob(filename)
 
-    content = json.dumps(data, indent = 2)
+    content = json.dumps(data)
 
-    file.upload_from_string(content,
-                            content_type="application/json")
+    file.upload_from_string(content, content_type="application/json")
 
-    return None
 
 
 #downloads theacs.json and returns it
@@ -134,8 +129,6 @@ def download_acs(dev_mode = True):
     data = json.loads(bytes)
 
     dataframe = pd.DataFrame(data)
-
-    #geoid needs to stay string for the join later
     dataframe["geoid"] = dataframe["geoid"].astype(str)
 
     return dataframe
