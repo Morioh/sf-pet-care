@@ -156,12 +156,24 @@ def integrate_sources(businesses, neighborhoods, census=None):
     return out.sort_values("businesses_total", ascending=False).reset_index(drop=True)
 
 
-def save_output(df, dev_mode=True):
-    """Write the processed dataset to the bucket, or to disk without credentials."""
+def save_output(df, dev_mode=True, dry_run=False):
+    """Write the processed dataset to the bucket, or to disk.
+
+    dry_run writes locally and never touches the bucket. The team shares one
+    -dev bucket, so a test that uploads on every run litters it with
+    near-identical files. The output is still written so counts can be checked.
+    """
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     name = f"pet_care_by_neighborhood_{stamp}.csv"
     bucket = os.getenv("GCP_BUCKET_NAME")
     key = os.getenv("GCP_SERVICE_ACCOUNT_KEY")
+
+    if dry_run:
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+        path = PROCESSED_DIR / name
+        df.to_csv(path, index=False)
+        log.info("DRY RUN: wrote %s - bucket untouched", path)
+        return str(path)
 
     if bucket and key:
         from google.cloud import storage
@@ -187,8 +199,12 @@ def save_output(df, dev_mode=True):
 def main():
     ap = argparse.ArgumentParser(description="sf-pet-care unified ETL")
     ap.add_argument("--prod", action="store_true", help="use the -prod bucket")
-    dev_mode = not ap.parse_args().prod
-    log.info("=== sf-pet-care ETL starting (dev_mode=%s) ===", dev_mode)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="write output locally only; never upload to the bucket")
+    args = ap.parse_args()
+    dev_mode = not args.prod
+    log.info("=== sf-pet-care ETL starting (dev_mode=%s%s) ===",
+             dev_mode, ", DRY RUN" if args.dry_run else "")
 
     try:
         businesses = load_businesses(dev_mode)
@@ -198,7 +214,7 @@ def main():
         validate_sources(businesses, neighborhoods)
         businesses, neighborhoods = standardize_sources(businesses, neighborhoods)
         result = integrate_sources(businesses, neighborhoods, census)
-        target = save_output(result, dev_mode)
+        target = save_output(result, dev_mode, args.dry_run)
     except Exception:
         log.exception("ETL FAILED")
         return 1
