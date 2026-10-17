@@ -71,7 +71,7 @@ gcloud secrets add-iam-policy-binding "$GCP_KEY_SECRET" \
 # TODO 7: which configuration variable holds the FastAPI port?
 # TODO 8: which configuration variable holds the path to your .env file?
 gcloud run deploy "$API_SERVICE" \
-  --source $SCRIPT_DIR/fastapi \
+  --source $SCRIPT_DIR/api \
   --region "$REGION" \
   --port="$API_PORT" \
   --allow-unauthenticated \
