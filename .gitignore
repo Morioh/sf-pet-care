@@ -1,2 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets — never commit these
 .env
-**/__pycache__
+.env.local
+*-key.json
+service-account*.json
+
+# Local ETL output
+data/processed/
+data/raw/
+
+# macOS
+.DS_Store
