@@ -9,6 +9,7 @@ import requests
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from google.cloud import storage
+import io
 
 
 
@@ -51,6 +52,7 @@ def fetch_acs_data(census_api):
     params["in"] = "state:06 county:075"
     params["key"] = census_api
     response = requests.get(CENSUS_URL, params=params, timeout=30)
+    response.raise_for_status()
     return response.json()
 
 
@@ -62,13 +64,28 @@ def clean_acs_data(census_api):
     df['geoid'] = df['state'] + df['county'] + df['tract']
     return df
 
+def get_and_merge_tract_data(df):
+    tract_url = "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2020_Gazetteer/2020_Gaz_tracts_national.zip"
+    response = requests.get(tract_url)
+    response.raise_for_status()
+    tract_df = pd.read_csv(io.BytesIO(response.content), sep = '\t', compression="zip")
+    ca_df = tract_df[tract_df['USPS'] == 'CA']
+    ca_df["GEOID"] = ca_df["GEOID"].astype(str).str.zfill(11)
+    combined = df.merge(ca_df, left_on= "geoid", right_on="GEOID", how="inner")
+    combined.columns = combined.columns.str.strip()
+    cleaned = combined[['tract_name', 'population', 'income', 'state', 'county', 'tract', 'geoid', 'INTPTLAT', 'INTPTLONG']]
+    cleaned.rename(columns={'INTPTLAT': 'lat', 'INTPTLONG':'lon'}, inplace = True)
+    return cleaned
+
+
 def upload_acs(dev_mode = True):
     client, bucket_name, census_api = get_client(dev_mode)
     bucket = client.bucket(bucket_name)
     file_name = "acs.json"
     file = bucket.blob(file_name)
     df = clean_acs_data(census_api)
-    json_str = df.to_json(orient="records")
+    combined_df = get_and_merge_tract_data(df)
+    json_str = combined_df.to_json(orient="records")
     file.upload_from_string(json_str, content_type="application/json")
     
 
