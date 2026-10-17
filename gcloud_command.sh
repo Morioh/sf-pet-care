@@ -159,8 +159,8 @@ gcloud scheduler jobs "$SCHEDULER_ACTION" http "$SCHEDULER_JOB" \
   --schedule="$SCHEDULE" \
   --uri="$API_SERVER_URL$SEARCH_PATH" \
   --http-method=POST \
-  --headers="Content-Type=application/json" \
-  --message-body="$MESSAGE_BODY"
+  --time-zone="America/Los_Angeles" \
+  --attempt-deadline=900s
 
 echo
 echo "Done."
