@@ -21,7 +21,8 @@ REGION="us-west1"
 # deploy time to set GCP_PROJECT_ID, VERTEX_AI_PROJECT_ID,
 # SEARCH_ENGINE_ID, GCP_BUCKET_NAME and GCP_SERVICE_ACCOUNT_KEY 
 # inside the containers.
-ENV_FILE="./.env"
+#ENV_FILE="./.env"
+ENV_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/api/.env"
 
 # TODO 4: absolute path to your service account JSON key on your laptop
 # (the file GCP_SERVICE_ACCOUNT_KEY points at for local development).
