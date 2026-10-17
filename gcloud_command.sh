@@ -71,7 +71,7 @@ gcloud secrets add-iam-policy-binding "$GCP_KEY_SECRET" \
 # TODO 7: which configuration variable holds the FastAPI port?
 # TODO 8: which configuration variable holds the path to your .env file?
 gcloud run deploy "$API_SERVICE" \
-  --source ./fastapi \
+  --source $SCRIPT_DIR/fastapi \
   --region "$REGION" \
   --port="$API_PORT" \
   --allow-unauthenticated \
@@ -118,7 +118,7 @@ echo "$API_SERVICE deployed at $API_SERVER_URL"
 # TODO 10: which directory holds the Streamlit Dockerfile?
 # TODO 11: which configuration variable holds the Streamlit port?
 gcloud run deploy "$WEBAPP_SERVICE" \
-  --source ./streamlit \
+  --source $SCRIPT_DIR/streamlit \
   --region "$REGION" \
   --port="$WEBAPP_PORT" \
   --allow-unauthenticated \
