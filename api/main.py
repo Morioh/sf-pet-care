@@ -1,9 +1,13 @@
 import io
+import os
 
 import pandas as pd
+from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 
 from collectors import acs_data, neighborhood, registered_businesses
+
+load_dotenv()
 
 CATEGORIES = ["veterinary", "pet_care", "pet_store"]
 RESULT_FILE = "processed/pet_care_by_neighborhood.csv"
@@ -58,11 +62,16 @@ def get_result(dev_mode=True):
 
 
 def run_etl(dev_mode=True):
+    if not os.getenv("CENSUS_API_KEY"):
+        raise EnvironmentError("CENSUS_API_KEY is not set")
+
     neighborhood.upload_neighborhood(dev_mode)
     registered_businesses.upload_registered_businesses(dev_mode)
+    acs_data.upload_acs(dev_mode)
 
     neighborhoods = get_neighborhoods(dev_mode)
     businesses = get_businesses(dev_mode)
+    census = get_census(dev_mode)
     check_sources(businesses, neighborhoods)
     result = combine(businesses, neighborhoods)
     saved_to = save_result(result, dev_mode)
@@ -70,6 +79,7 @@ def run_etl(dev_mode=True):
     return {
         "neighborhoods": len(neighborhoods),
         "businesses": len(businesses),
+        "census_tracts": len(census),
         "businesses_counted": int(result["businesses_total"].sum()),
         "saved_to": saved_to,
     }
@@ -108,7 +118,7 @@ def processed(dev_mode: bool = True):
 
 @app.post("/etl")
 def etl(dev_mode: bool = True):
-    """Refresh the neighborhood and business data, combine them and save the result."""
+    """Refresh all three sources, combine neighborhoods and businesses, and save the result."""
     return run_etl(dev_mode)
 
 
