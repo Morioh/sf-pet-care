@@ -26,7 +26,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000").rstrip("/")
+API_URL = (os.getenv("API_URL") or os.getenv("API_SERVICE_URL") or "http://127.0.0.1:8000").rstrip("/")
 
 CATEGORIES = ["veterinary", "pet_care", "pet_store"]
 LABELS = {
