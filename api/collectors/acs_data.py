@@ -7,7 +7,6 @@ import os
 import pandas as pd
 import requests 
 from dotenv import load_dotenv
-from fastapi import FastAPI
 from google.oauth2 import service_account
 from google.cloud import storage
 import io
@@ -47,7 +46,6 @@ def get_client(dev_mode):
 
 
 def fetch_acs_data(census_api):
-    url = CENSUS_URL
     params = {}
     params["get"] =  "NAME,B01003_001E,B19013_001E"
     params["for"] =  "tract:*"
