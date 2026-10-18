@@ -13,7 +13,7 @@ Reads from the sf-pet-care API:
     /businesses     individual businesses with lat/lon
 
 Run (with the API up):
-    streamlit run neighborhood_explorer.py
+    streamlit run streamlit_app.py
 """
 import math
 import os
