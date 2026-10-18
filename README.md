@@ -15,7 +15,7 @@ An analysis of how friendly the neighborhoods in San Francisco are to pet owners
 | Technology | URL |
 | --- | --- |
 | Git Repo | https://github.com/Morioh/sf-pet-care |
-| GCP Project | https://console.cloud.google.com/welcome/new?authuser=1&project=sf-pet-care | 
+| GCP Project | https://console.cloud.google.com/welcome/new?authuser=1&project=sf-pet-care |
 
 ---
 
