@@ -1,168 +1,98 @@
-# Unified ETL — Design
+# ETL Design
 
-**Author:** Ahmad Naggayev · **Branch:** `ahmad` · **Updated:** 2026-10-04
+**Author:** Ahmad Naggayev · **Branch:** `ahmad` · **Updated:** 2026-10-16
 
-I own the integration layer: the code that takes what each source owner produces and turns
-it into one clean, joined dataset. I don't control how anyone fetches their data — only what
-each source hands over.
-
-**Final metric (needs team sign-off):** pet-care businesses per 1,000 residents, per neighborhood.
+The ETL combines the team's three data sources into one table: pet-care businesses per
+San Francisco neighborhood, by type. All ETL code lives in `api/main.py`. The FastAPI
+endpoints that serve the data live in the same file.
 
 ---
 
-## 1. Shape
+## 1. Flow
 
 ```
-Maurice  — SF business registry (API)        ─┐
-Jessie   — Census ACS population (API)       ─┼──>  etl/client.py  ──>  GCS bucket
-Jonah    — SF neighborhood boundaries (file) ─┘         │
-                                                        ├─ validate (etl/contract.py)
-                                                        ├─ join on neighborhood name
-                                                        ├─ join population
-                                                        └─ compute metric
+api/collectors/neighborhood.py          (Jonah)   ─┐
+api/collectors/registered_businesses.py (Maurice) ─┼─>  api/main.py  ─>  GCS bucket
+api/collectors/acs_data.py              (Jessie)  ─┘    run_etl()        processed/pet_care_by_neighborhood.csv
 ```
+
+`POST /etl` runs `run_etl()`:
+
+1. **Extract:** refresh all three source files in the bucket (`upload_neighborhood`,
+   `upload_registered_businesses`, `upload_acs`), then read them back.
+2. **Check:** `check_sources()` stops the run if a source is empty or a business
+   neighborhood has no matching boundary.
+3. **Transform:** `combine()` counts businesses per neighborhood and type, keeps all 41
+   neighborhoods (zeros included) and adds a `businesses_total` column.
+4. **Load:** `save_result()` writes the CSV to `processed/` in the bucket.
+
+`python main.py` runs the same ETL from the command line.
 
 ---
 
-## 2. Source interfaces
+## 2. Sources
 
-All three collectors are plain Python — no FastAPI in the pipeline. Each exposes
-`upload_*(dev_mode)` and `download_*(dev_mode)`, and `dev_mode` picks the `-dev` or `-prod`
-bucket per the work contract.
+Each collector is plain Python with `upload_*(dev_mode)` and `download_*(dev_mode)`.
+`dev_mode=True` uses the `-dev` bucket and `False` uses `-prod`, per the work contract.
 
-| Owner | Download function | Returns | File written |
+| Owner | Source | Bucket file | Rows |
 |---|---|---|---|
-| Maurice | `download_registered_businesses(dev_mode)` | DataFrame, 374 rows | `registered_businesses.json` |
-| Jonah | `download_neighborhood(dev_mode)` | GeoDataFrame, 41 polygons | `neighborhood.geojson` |
-| Jessie | ⏳ not yet — `clean_acs_data()` returns a list of dicts | 244 tracts | `acs_sf_tracts_<DATE>.json` |
+| Jonah | SF Analysis Neighborhoods (GeoJSON) | `neighborhood.geojson` | 41 polygons |
+| Maurice | SF Registered Business Locations (API) | `registered_businesses.json` | 374 pet-care businesses |
+| Jessie | Census ACS 5-year, SF tracts (API) | `acs.json` | 244 tracts |
 
-**Column specs live in `etl/contract.py`, not in this document.** One source of truth; copying
-them here would only let the two drift apart.
-
-Maurice and Jonah now share the same `get_client(dev_mode)` pattern, the same three
-environment variables, and both overwrite a single file. Jessie's script still uses
-`GCP_DEV_BUCKET` and writes a new dated file each run — worth aligning.
-
-### Open ask for Jessie
-
-```python
-download_acs(dev_mode=True) -> pd.DataFrame   # geoid as str, population as int
-```
-
-Her `clean_acs_data()` already produces the right records; it needs wrapping in a
-DataFrame and a bucket read, matching the pattern the other two use.
+The Census API needs a key: without one it redirects to a "missing key" page. So `POST /etl`
+needs `CENSUS_API_KEY` set in `api/.env` locally and in the Cloud Run environment. If it's
+missing, the run stops with `CENSUS_API_KEY is not set`. `GET /census` only reads the bucket
+and works without a key.
 
 ---
 
-## 3. Verified findings
+## 3. Endpoints
 
-Checked against the live sources on 2026-10-03/04. Several README assumptions did not hold.
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/neighborhoods` | neighborhood boundaries (GeoJSON) |
+| GET | `/businesses` | pet-care businesses (raw) |
+| GET | `/census` | census population and income per tract (raw) |
+| GET | `/processed` | business counts per neighborhood (ETL output) |
+| POST | `/etl` | runs the ETL, returns row counts (neighborhoods, businesses, census tracts) and the saved file path |
 
-**Pet businesses cannot be found by name.** Searching `dba_name` for "pet" returns 1,914 rows
-including *Abbey Carpet*, *24/7 Carpet Care* and addresses in *Petaluma*. Classification uses
-NAICS prefixes instead, matched by prefix because the codes are self-reported and sometimes
-truncated:
+GET only reads. POST is the only endpoint that changes data in the bucket, so it's the one
+the Cloud Scheduler job is meant to call. One scheduled POST refreshes all three sources.
+
+---
+
+## 4. Decisions
+
+**Pet businesses are classified by NAICS code, not by name.** Searching names for "pet"
+matches carpet companies and Petaluma addresses. Maurice's collector uses NAICS prefixes
+(counts as of 2026-10-16; they change as the live data changes):
 
 | Prefix | Category | Count |
 |---|---|---|
-| `54194` | Veterinary services | 61 |
-| `81291` | Pet care — grooming, boarding, walking | 302 |
-| `45391` | Pet and pet supplies stores | 11 |
+| `54194` | veterinary | 63 |
+| `81291` | pet_care (grooming, boarding, walking) | 302 |
+| `45391` | pet_store | 9 |
 
-**The raw feed needs filtering.** 367,825 records total → 295,739 in San Francisco → 102,119
-still open → 99,399 with coordinates. It includes closed businesses and businesses registered
-in SF but located elsewhere.
-
-**`location` arrives as a nested GeoJSON Point** with coordinates ordered **[longitude, latitude]**.
-Maurice's script flattens it to `longitude` / `latitude` columns and drops the original.
-
-**The Census API returns HTTP 200 on failure** — without a key it serves an HTML page titled
-"Missing Key", not a 401. Code that only checks the status code will parse garbage.
-
-**Both API URLs redirect** (`data.sfgov.org` → `data.sf.gov`). `httpx` and `requests` need
-`follow_redirects` / `-L`.
-
-**The GeoJSON is one FeatureCollection**, 41 MultiPolygon features, name in property `nhood`
-(Jonah renames it to `neighborhood`). Must be split to newline-delimited before any BigQuery load.
+**There's no spatial join.** The business data already names each business's neighborhood,
+and all 35 names that appear match Jonah's boundary names exactly, so the join is a plain
+merge on `neighborhood`. 366 of 374 businesses are counted. The other 8 have no neighborhood
+and no coordinates, so a spatial join wouldn't place them either.
 
 ---
 
-## 4. Pipeline
+## 5. Limitation
 
-```python
-# etl/client.py
-businesses    = load_businesses(dev_mode)     # Maurice's download_registered_businesses()
-neighborhoods = load_neighborhoods(dev_mode)  # Jonah's download_neighborhood()
-census        = load_acs(dev_mode)            # None until Jessie ships hers
-
-check_businesses(businesses)                  # etl/contract.py
-check_neighborhoods(neighborhoods)
-check_join(businesses, neighborhoods)         # assert the join before relying on it
-
-result = integrate_sources(businesses, neighborhoods, census)
-save_output(result, dev_mode)                 # processed/ in the bucket
-```
-
-Each source sits behind a small adapter so a missing interface is visible rather than fatal.
-When Jessie's function lands, `load_acs()` becomes one line.
+Census data isn't joined to neighborhoods. It comes as 244 tracts keyed by `geoid`, while
+businesses are grouped into 41 named neighborhoods, and the two share no key. So per-capita
+rates aren't calculated. Census is still stored and served raw at `/census`. The fix is SF's
+tract-to-neighborhood lookup table, which would make it one merge and one sum.
 
 ---
 
-## 5. Decisions
+## 6. Credentials
 
-### Spatial join is not needed — RESOLVED 2026-10-04
-
-Measured on live data: **all 35 neighbourhood values in the business file match a boundary
-name exactly. Zero orphans.** The column is 99.9% populated (99,288 of 99,399 rows). Six
-boundaries simply have no pet businesses.
-
-Maurice now emits the column as `neighborhood`, the same name Jonah uses, so the join is a
-plain merge. No `ST_CONTAINS`, no GeoPandas in the pipeline, no CRS alignment. `check_join()`
-asserts it rather than trusting it.
-
-The 8 businesses with no neighbourhood are the **same 8** that have no coordinates, so a
-spatial join would recover none of them.
-
-### ⚠️ OPEN — census tracts → neighbourhoods
-
-| | |
-|---|---|
-| Census gives | 244 tracts keyed by 11-char `geoid` |
-| Boundaries give | 41 neighbourhoods keyed by name |
-| Shared key | **none** |
-
-Without a mapping there is no population denominator and the headline metric cannot be
-computed. This is the last real blocker.
-
-Options: a published SF tract↔neighbourhood crosswalk, or compute tract centroids and test
-which polygon contains each — the one place GeoPandas is still justified, and only for 244
-rows once, not per business per run.
-
-Whichever we choose goes in the README, because it changes the numbers.
-
-### Still to confirm
-
-- Raw and processed stored separately, or one output for now?
-- Confirm the metric is pet businesses per 1,000 residents.
-
----
-
-## 6. Risks
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Tract→neighbourhood unmapped | no denominator, no metric | section 5 — needs a team decision |
-| No service-account key locally | `client.py` writes output to disk instead of GCS | accept the GCP owner invite, then mint a key |
-| Pet classification rule | determines the entire result | NAICS prefixes, documented in README |
-| Jessie's file naming differs | ETL must guess which file is current | align on overwrite-single-file, as Maurice and Jonah now do |
-| 8 of 374 businesses unplaced | small undercount | `check_businesses` reports the count every run |
-| `geoid` read as int | leading zero lost, join fails silently | `check_census` asserts 11 characters |
-| Census key missing | HTML returned with HTTP 200 | validate the body, key in `.env` |
-
----
-
-## 7. Credentials
-
-No keys in code. Census key in `.env` as `CENSUS_API_KEY`, listed in `.env_template`, loaded
-with `python-dotenv`. GCP access via `GCP_SERVICE_ACCOUNT_KEY` pointing at a file path that is
-never committed — `.gitignore` covers `.env`, `*-key.json` and `service-account*.json`.
+No keys in code or images. Values come from `api/.env` (template: `api/.env_template`).
+`.gitignore`, `.dockerignore` and `.gcloudignore` keep `.env` out of git and out of the
+Docker images.

@@ -1,76 +1,122 @@
 # =====================================================================
-# HW3 shared configuration -- FILL IN THE TODOs
+# SF Pet Care -- shared deployment configuration
 #
-# This file is SOURCED by both gcloud_command.sh and test_hw3.sh 
-# to set environment variables:
+# Sourced by gcloud_command.sh to set the values it deploys with:
 #
 #   source "$(dirname "$0")/config.sh"
 #
-# so you fill these values in ONCE to run the .sh files
+# Project ID, bucket name and key path are read from api/.env, so a
+# new deployer only fills in api/.env (copied from api/.env_template).
+# Everything below that has a working default.
 # =====================================================================
 
-# TODO 1: your GCP_PROJECT_ID.
-PROJECT_ID="sf-pet-care"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# TODO 2: the region to deploy into, e.g. "us-west1". 
-# Cloud Run and Cloud Scheduler must be in the same region.
-REGION="us-west1"
+# Path to the API's .env file (copy api/.env_template to api/.env).
+# Cloud Run loads it at deploy time to set GCP_PROJECT_ID,
+# GCP_BUCKET_NAME, GCP_SERVICE_ACCOUNT_KEY, SODA_APP_TOKEN and
+# CENSUS_API_KEY inside the API container.
+ENV_FILE="$REPO_DIR/api/.env"
 
-# TODO 3: absolute path to your .env file. 
-# Cloud Run reads this at
-# deploy time to set GCP_PROJECT_ID, VERTEX_AI_PROJECT_ID,
-# SEARCH_ENGINE_ID, GCP_BUCKET_NAME and GCP_SERVICE_ACCOUNT_KEY 
-# inside the containers.
-ENV_FILE="/Users/jonahrobinson/Documents/Classes/data_acquisition_692/sf-pet-care/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ERROR: ENV_FILE '$ENV_FILE' does not exist." \
+       "Copy api/.env_template to api/.env and fill it in." >&2
+  exit 1
+fi
 
-# TODO 4: absolute path to your service account JSON key on your laptop
-# (the file GCP_SERVICE_ACCOUNT_KEY points at for local development).
-LOCAL_KEY_FILE="/Users/jonahrobinson/.ssh/dsasi692-sec002-c208e4b03d03.json"
+# Read KEY=value from the .env file (last match wins, quotes stripped).
+# Prints nothing for a missing key; '|| true' keeps 'set -e' and
+# 'pipefail' in gcloud_command.sh from exiting when grep finds no match.
+_env_get() {
+  { grep -E "^[[:space:]]*$1[[:space:]]*=" "$ENV_FILE" || true; } | tail -n 1 \
+    | cut -d= -f2- | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
+}
 
-# TODO 5: the ports your two Dockerfiles EXPOSE. 
-# These must match your Dockerfiles exactly.
-API_PORT="8000"
-WEBAPP_PORT="8501"
+# GCP project that hosts the Cloud Run services, buckets and scheduler.
+PROJECT_ID="$(_env_get GCP_PROJECT_ID)"
+
+# Bucket BASE name; the API appends "-dev" or "-prod" itself.
+BUCKET_BASE="$(_env_get GCP_BUCKET_NAME)"
+
+# Service account JSON key on your laptop (GCP_SERVICE_ACCOUNT_KEY).
+# Uploaded to Secret Manager by gcloud_command.sh.
+LOCAL_KEY_FILE="$(_env_get GCP_SERVICE_ACCOUNT_KEY)"
+
+# Census API key, stored in Secret Manager rather than as a plain env
+# var. Point CENSUS_API_KEY_FILE in api/.env at a file holding just the
+# key; if it is unset, the CENSUS_API_KEY value in api/.env is used.
+CENSUS_KEY_FILE="$(_env_get CENSUS_API_KEY_FILE)"
+CENSUS_KEY_VALUE="$(_env_get CENSUS_API_KEY)"
+
+# Region to deploy into. Cloud Run and Cloud Scheduler must match.
+# Override per run with:  REGION=us-central1 bash gcloud_command.sh
+REGION="${REGION:-us-west1}"
+
+# Ports the containers listen on. These must match the EXPOSE/CMD
+# ports in api/Dockerfile and streamlit/Dockerfile.
+API_PORT="8080"
+WEBAPP_PORT="8080"
+
+# Seconds Cloud Run lets one API request run. POST /etl pulls all
+# three sources, so this matches the scheduler's attempt deadline.
+API_TIMEOUT="900"
 
 # ---------------------------------------------------------------------
-# Provided -- no need to change anything below this line.
+# Deployment resource names
 # ---------------------------------------------------------------------
 
-# Secret Manager holds the key, and we need to mount it.
+# Secret Manager secret holding the service account key, and where
+# Cloud Run mounts it inside the API container.
 GCP_KEY_SECRET=pet-gcp-key
 SECRET_MOUNT_PATH=/secrets/gcp_key.json
+
+# Secret Manager secret holding the Census key; Cloud Run exposes it
+# to the API as the CENSUS_API_KEY env var.
+CENSUS_KEY_SECRET=census-api-key
 
 # Cloud Run service names.
 API_SERVICE=pet-api-server
 WEBAPP_SERVICE=pet-webapp
 
-# Cloud Scheduler job: name, schedule, and the request body.
+# Cloud Scheduler job that refreshes the data nightly (midnight PT).
 SCHEDULER_JOB="refresh-pet-data"
 SCHEDULE="0 0 * * *"
-MESSAGE_BODY='{"job_title":"Data Engineer", "company_dict":{"Google":"www.google.com/about/careers/applications/jobs","OpenAI":"openai.com/careers","Anthropic":"anthropic.com/careers/jobs"}}'
 
-# The API endpoint, and the GCS prefix.
-SEARCH_PATH=/search_and_save/jobs
-FILE_NAME_PREFIX=job_search
+# API endpoint the scheduler POSTs to (POST /etl in api/main.py).
+ETL_PATH=/etl
+
 
 # =====================================================================
-# Validation 
+# Validation
 # =====================================================================
-for _hw3_var in PROJECT_ID REGION ENV_FILE LOCAL_KEY_FILE API_PORT \
+for _cfg_var in PROJECT_ID BUCKET_BASE LOCAL_KEY_FILE REGION API_PORT \
                 WEBAPP_PORT; do
-  if [ -z "${!_hw3_var}" ]; then
-    echo "ERROR: $_hw3_var is empty - fill in TODOs in config.sh" \
+  if [ -z "${!_cfg_var}" ]; then
+    echo "ERROR: $_cfg_var is empty - check api/.env and config.sh" \
          "before running this script." >&2
     exit 1
   fi
 done
-unset _hw3_var
+unset _cfg_var
 
-if [ ! -f "$ENV_FILE" ]; then
-  echo "ERROR: ENV_FILE '$ENV_FILE' does not exist." >&2
-  exit 1
-fi
-if [ ! -f "$LOCAL_KEY_FILE" ]; then
-  echo "ERROR: LOCAL_KEY_FILE '$LOCAL_KEY_FILE' does not exist." >&2
-  exit 1
+# The key files are only needed to deploy; teardown.sh sets
+# SKIP_KEY_CHECKS=1 so it still works if they have been moved.
+if [ -z "${SKIP_KEY_CHECKS:-}" ]; then
+  if [ ! -f "$LOCAL_KEY_FILE" ]; then
+    echo "ERROR: GCP_SERVICE_ACCOUNT_KEY '$LOCAL_KEY_FILE' in api/.env" \
+         "does not exist. Use an absolute path to your key file." >&2
+    exit 1
+  fi
+
+  if [ -n "$CENSUS_KEY_FILE" ]; then
+    if [ ! -s "$CENSUS_KEY_FILE" ]; then
+      echo "ERROR: CENSUS_API_KEY_FILE '$CENSUS_KEY_FILE' in api/.env" \
+           "does not exist or is empty." >&2
+      exit 1
+    fi
+  elif [ -z "$CENSUS_KEY_VALUE" ]; then
+    echo "ERROR: set CENSUS_API_KEY_FILE (path to a file holding the key)" \
+         "or CENSUS_API_KEY in api/.env." >&2
+    exit 1
+  fi
 fi
