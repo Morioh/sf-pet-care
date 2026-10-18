@@ -7,6 +7,7 @@
 #   4. The Streamlit dashboard service
 #   2. The FastAPI service
 #   1. The service account key and Census key secrets
+#   0. The scheduler's service account (pet-etl-scheduler)
 #   -  The container images (Artifact Registry repo
 #      'cloud-run-source-deploy') and uploaded source
 #      (gs://run-sources-<PROJECT_ID>-<REGION>) that --source deploys
@@ -68,6 +69,7 @@ echo "This will delete from project '$PROJECT_ID' (region $REGION):"
 echo "  - Cloud Scheduler job:  $SCHEDULER_JOB"
 echo "  - Cloud Run services:   $WEBAPP_SERVICE, $API_SERVICE"
 echo "  - Secrets:              $GCP_KEY_SECRET, $CENSUS_KEY_SECRET"
+echo "  - Service account:      $ETL_INVOKER_SA"
 echo "  - Container images:     Artifact Registry repo $SOURCE_REPO"
 echo "  - Uploaded source:      ${BUILD_BUCKETS[*]} (if present)"
 echo "  - IAM grants added by gcloud_command.sh"
@@ -123,6 +125,16 @@ for _secret in "$GCP_KEY_SECRET" "$CENSUS_KEY_SECRET"; do
   fi
 done
 unset _secret
+
+# =====================================================================
+# STEP 0 -- the service account the scheduler called /etl as. Deleted
+# after the scheduler job, which referenced it.
+# =====================================================================
+if gcloud iam service-accounts describe "$ETL_INVOKER_SA" >/dev/null 2>&1; then
+  gcloud iam service-accounts delete "$ETL_INVOKER_SA" --quiet
+else
+  echo "Service account $ETL_INVOKER_SA: already gone."
+fi
 
 # =====================================================================
 # Build leftovers -- images and uploaded source from --source deploys.

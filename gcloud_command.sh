@@ -3,12 +3,14 @@
 # SF Pet Care -- Cloud Run deployment script
 #
 # Deploys the project to your own Google Cloud project:
-#   0. Enable the required APIs, grant build access, create buckets
+#   0. Enable the required APIs, grant build access, create buckets,
+#      create the service account the scheduler calls /etl as
 #   1. Store the service account key in Secret Manager
-#   2. Deploy the FastAPI service (api/)
+#   2. Deploy the FastAPI service (api/), serving the -prod bucket
 #   3. Read back the FastAPI service's public URL
 #   4. Deploy the Streamlit dashboard (streamlit/), pointed at that URL
-#   5. Create a Cloud Scheduler job that POSTs to /etl every midnight
+#   5. Create a Cloud Scheduler job that POSTs to /etl every midnight,
+#      with a signed token; the API rejects /etl calls from anyone else
 #
 # Before running:
 #   - A GCP project with billing enabled, and you logged in as an
@@ -82,6 +84,7 @@ gcloud services enable \
   artifactregistry.googleapis.com \
   secretmanager.googleapis.com \
   cloudscheduler.googleapis.com \
+  iam.googleapis.com \
   storage.googleapis.com
 
 # Newer projects no longer give the compute account Editor, so
@@ -105,6 +108,13 @@ for _suffix in dev prod; do
     --role=roles/storage.objectAdmin >/dev/null
 done
 unset _suffix _bucket
+
+# Cloud Scheduler signs its /etl requests as this account, and the API
+# rejects /etl calls from anyone else.
+if ! gcloud iam service-accounts describe "$ETL_INVOKER_SA" >/dev/null 2>&1; then
+  gcloud iam service-accounts create "$ETL_INVOKER_NAME" \
+    --display-name="SF Pet Care nightly ETL"
+fi
 
 # =====================================================================
 # STEP 1 -- put the service account key and Census key in Secret
@@ -138,14 +148,23 @@ for _secret in "$GCP_KEY_SECRET" "$CENSUS_KEY_SECRET"; do
 done
 unset _secret
 
-# Cloud Run rejects a variable set both from the env file and from a
-# secret, so deploy with a copy of api/.env minus the Census entries.
+# Deploy with a copy of api/.env adjusted for Cloud Run:
+#   - Census entries removed: Cloud Run rejects a variable set both from
+#     the env file and from a secret.
+#   - GCP_SERVICE_ACCOUNT_KEY pointed at the mounted secret, since the
+#     path on your laptop does not exist inside the container.
+#   - DEV_MODE and ETL_INVOKER set for the deployed API (see config.sh).
 # The name must end in .env for gcloud to read it as a dotenv file.
 DEPLOY_ENV_DIR=$(mktemp -d)
 trap 'rm -rf "$DEPLOY_ENV_DIR"' EXIT
 DEPLOY_ENV_FILE="$DEPLOY_ENV_DIR/api.env"
-grep -vE '^[[:space:]]*CENSUS_API_KEY(_FILE)?[[:space:]]*=' "$ENV_FILE" \
-  > "$DEPLOY_ENV_FILE" || true
+{
+  grep -vE '^[[:space:]]*(CENSUS_API_KEY(_FILE)?|GCP_SERVICE_ACCOUNT_KEY|DEV_MODE|ETL_INVOKER|ETL_AUDIENCE)[[:space:]]*=' \
+    "$ENV_FILE" || true
+  echo "GCP_SERVICE_ACCOUNT_KEY=$SECRET_MOUNT_PATH"
+  echo "DEV_MODE=$API_DEV_MODE"
+  echo "ETL_INVOKER=$ETL_INVOKER_SA"
+} > "$DEPLOY_ENV_FILE"
 
 # =====================================================================
 # STEP 2 -- deploy the FastAPI service.
@@ -161,13 +180,6 @@ deploy_with_retry "$API_SERVICE" \
   --allow-unauthenticated \
   --env-vars-file="$DEPLOY_ENV_FILE" \
   --set-secrets="$SECRET_MOUNT_PATH=$GCP_KEY_SECRET:latest,CENSUS_API_KEY=$CENSUS_KEY_SECRET:latest"
-
-# --env-vars-file loaded GCP_SERVICE_ACCOUNT_KEY as the path on your
-# laptop, which does not exist inside the container. Point it at the
-# mounted secret instead.
-gcloud run services update "$API_SERVICE" \
-  --region "$REGION" \
-  --update-env-vars=GCP_SERVICE_ACCOUNT_KEY="$SECRET_MOUNT_PATH"
 
 # =====================================================================
 # STEP 3 -- read back the API server's public URL.
@@ -194,6 +206,12 @@ if [ -z "$API_SERVER_URL" ]; then
 fi
 echo "$API_SERVICE deployed at $API_SERVER_URL"
 
+# The API checks that /etl tokens were issued for its own URL. Until this
+# is set, /etl refuses every call, so a fresh deploy never runs open.
+gcloud run services update "$API_SERVICE" \
+  --region "$REGION" \
+  --update-env-vars=ETL_AUDIENCE="$API_SERVER_URL"
+
 # =====================================================================
 # STEP 4 -- deploy the Streamlit dashboard, pointed at the API server.
 #
@@ -218,7 +236,8 @@ echo "$WEBAPP_SERVICE deployed at $WEBAPP_URL"
 # STEP 5 -- schedule the nightly ETL refresh.
 #
 # Cloud Scheduler sends an HTTP POST to the API's /etl endpoint
-# (api/main.py) on the schedule set in config.sh.
+# (api/main.py) on the schedule set in config.sh, with an ID token for
+# ETL_INVOKER_SA that the API verifies.
 # =====================================================================
 # Create or update based on whether the job already exists.
 if gcloud scheduler jobs describe "$SCHEDULER_JOB" \
@@ -233,6 +252,8 @@ gcloud scheduler jobs "$SCHEDULER_ACTION" http "$SCHEDULER_JOB" \
   --schedule="$SCHEDULE" \
   --uri="$API_SERVER_URL$ETL_PATH" \
   --http-method=POST \
+  --oidc-service-account-email="$ETL_INVOKER_SA" \
+  --oidc-token-audience="$API_SERVER_URL" \
   --time-zone="America/Los_Angeles" \
   --attempt-deadline="${API_TIMEOUT}s"
 
@@ -242,5 +263,6 @@ echo "  API:       $API_SERVER_URL"
 echo "  Dashboard: $WEBAPP_URL"
 echo "  Scheduler: $SCHEDULER_JOB ($SCHEDULE) -> POST $ETL_PATH"
 echo
-echo "The dashboard is empty until the first ETL run. To run it now:"
+echo "The dashboard is empty until the first ETL run fills the -prod bucket."
+echo "To run it now:"
 echo "  gcloud scheduler jobs run $SCHEDULER_JOB --location=$REGION"

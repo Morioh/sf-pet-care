@@ -108,7 +108,7 @@ For a user without a service account key yet, `api/.env_template` contains the `
 
 ### 3. Make sure the buckets exist
 
-The API uses `<GCP_BUCKET_NAME>-dev` by default and `<GCP_BUCKET_NAME>-prod` when called with `dev_mode=false`. On the team project they already exist. On a new project, the user can either run the cloud deploy (it creates them) or create them manually:
+Run locally, the API uses `<GCP_BUCKET_NAME>-dev` by default and `<GCP_BUCKET_NAME>-prod` when called with `dev_mode=false`. The deployed API defaults to `-prod`. On the team project they already exist. On a new project, the user can either run the cloud deploy (it creates them) or create them manually:
 
 ```bash
 gcloud storage buckets create gs://<GCP_BUCKET_NAME>-dev --location=us-west1 --uniform-bucket-level-access
@@ -140,9 +140,9 @@ Or run it once without starting the server, from `api/`:
 python main.py
 ```
 
-The ETL downloads all three sources, uploads them to the bucket, combines businesses with neighborhoods, and saves the result to `processed/pet_care_by_neighborhood.csv`. It returns a summary of row counts and where the result was saved.
+The ETL downloads all three sources and uploads them to the bucket. It then counts pet-care businesses per neighborhood, adds each neighborhood's population from the census tracts and the number of businesses per 1,000 residents, and saves the result to `processed/pet_care_by_neighborhood.csv`. It returns a summary of row counts and where the result was saved.
 
-> **Note:** The local API and the deployed API share the same `-dev` bucket, so a local ETL run also changes what the deployed dashboard shows.
+> **Note:** Local runs use the `-dev` bucket and the deployed app uses `-prod`, so local ETL runs don't change what the deployed dashboard shows.
 
 ### 6. Run the dashboard
 
@@ -167,10 +167,10 @@ API_URL=https://<api-service-url> streamlit run streamlit_app.py
 | GET | `/neighborhoods` | SF neighborhood boundaries as GeoJSON (41 polygons) |
 | GET | `/businesses` | Active pet-care businesses: veterinary, pet care and pet stores |
 | GET | `/census` | Population and median household income per SF census tract (ACS 5-year) |
-| GET | `/processed` | Pet-care business counts per neighborhood, by type, from the last ETL run |
-| POST | `/etl` | Refreshes all sources, recombines them, and saves the result |
+| GET | `/processed` | Per neighborhood, from the last ETL run: pet-care business counts by type, `population`, and `businesses_per_1000` (businesses per 1,000 residents) |
+| POST | `/etl` | Refreshes all sources, recombines them, and saves the result. On the deployed API, only the Cloud Scheduler job may call it. |
 
-Every endpoint accepts `?dev_mode=false` to use the `-prod` bucket instead of `-dev`. Note that `-prod` stays empty until `POST /etl?dev_mode=false` has been run.
+Every endpoint accepts `?dev_mode=true` or `?dev_mode=false` to choose the `-dev` or `-prod` bucket. Without it, the local API uses `-dev` and the deployed API uses `-prod`. A bucket stays empty until an ETL run has filled it.
 
 ```bash
 curl http://127.0.0.1:8000/processed
@@ -224,15 +224,17 @@ The script:
 2. Uploads the service account key and the Census key to Secret Manager.
 3. Builds and deploys the API (`pet-api-server`), with the key mounted as a file and the Census key as an environment variable.
 4. Builds and deploys the dashboard (`pet-webapp`), pointed at the API's URL.
-5. Creates or updates the nightly Cloud Scheduler job that calls `POST /etl`.
+5. Creates or updates the nightly Cloud Scheduler job that calls `POST /etl`. The job signs its requests as the `pet-etl-scheduler` service account, and the deployed API rejects `/etl` calls from anyone else.
+
+The deployed API serves the `-prod` bucket.
 
 It prints the API and dashboard URLs when it's done. The first deploy takes several minutes. On a brand-new project, the first build may report `PERMISSION_DENIED` while new permissions propagate; the script waits and retries automatically.
 
-The script is safe to re-run: existing buckets, secrets and the scheduler job are reused or updated.
+The script is safe to re-run: existing buckets, secrets, the service account and the scheduler job are reused or updated.
 
 ### 4. Load the data
 
-The dashboard shows data from the last ETL run. To run one now instead of waiting for midnight:
+The dashboard shows data from the last ETL run in the `-prod` bucket, which is empty after the first deploy. To run the ETL now instead of waiting for midnight:
 
 ```bash
 gcloud scheduler jobs run refresh-pet-data --location=us-west1
@@ -241,7 +243,7 @@ gcloud scheduler jobs run refresh-pet-data --location=us-west1
 ### 5. Use the deployed service
 
 - **Dashboard:** open the `pet-webapp` URL printed by the deploy.
-- **API:** call the `pet-api-server` URL with the endpoints listed under [Using the API](#using-the-api), e.g. `curl https://<api-url>/processed`. Docs are at `https://<api-url>/docs`.
+- **API:** call the `pet-api-server` URL with the endpoints listed under [Using the API](#using-the-api), e.g. `curl https://<api-url>/processed`. Docs are at `https://<api-url>/docs`. To refresh the data on demand, run the scheduler job (step 4); a direct `POST /etl` returns `401`.
 
 To look up the URLs later:
 
@@ -274,7 +276,7 @@ Any new Python package must also be added to that service's `requirements.txt`, 
 bash teardown.sh
 ```
 
-This removes the scheduler job, both Cloud Run services, both secrets, the built container images, and the uploaded source. It lists everything first and asks for confirmation; pass `--yes` to skip the prompt.
+This removes the scheduler job, both Cloud Run services, both secrets, the scheduler's service account, the built container images, and the uploaded source. It lists everything first and asks for confirmation; pass `--yes` to skip the prompt.
 
 The data buckets are **kept** by default. To delete them and all their data as well:
 
@@ -293,6 +295,7 @@ The enabled Google Cloud services stay on; they cost nothing while unused. It's 
 | `bad substitution` when running a script | Run it with `bash`, not `zsh` or `sh` |
 | `PERMISSION_DENIED` on the first deploy, even after retries | Wait a few minutes and re-run `bash gcloud_command.sh` |
 | Dashboard loads but shows no data | Run the ETL: `gcloud scheduler jobs run refresh-pet-data --location=us-west1` |
+| `POST /etl` on the deployed API returns `401` or `403` | Expected: only the scheduler may run it. Use `gcloud scheduler jobs run refresh-pet-data --location=us-west1` |
 | `CENSUS_API_KEY is not set` when running locally | Local runs need `CENSUS_API_KEY` itself in `api/.env`, not just `CENSUS_API_KEY_FILE` |
 
 
@@ -335,6 +338,6 @@ sf-pet-care/
     ├── etl-design.md
     ├── sf-pet-care.drawio     # system diagram (editable source)
     ├── sf-pet-care.jpg        # system diagram (rendered)
-    ├── report.pdf             # export of report.pages
+    ├── report.pdf             # project report (source .pages file kept in Drive)
     └── work-contract.pdf
 ```
