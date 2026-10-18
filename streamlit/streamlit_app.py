@@ -1,3 +1,4 @@
+"""Explore pet-care services in each San Francisco neighborhood.
 
 
 
@@ -37,7 +38,7 @@ Reads from the sf-pet-care API:
     /businesses     individual businesses with lat/lon
 
 Run (with the API up):
-    streamlit run neighborhood_explorer.py
+    streamlit run streamlit_app.py
 """
 import math
 import os
@@ -50,7 +51,8 @@ import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
-API_URL = (os.getenv("API_URL") or os.getenv("API_SERVICE_URL") or "http://127.0.0.1:8000").rstrip("/")
+API_URL = (os.getenv("API_URL") or os.getenv("API_SERVICE_URL")
+           or "http://127.0.0.1:8000").rstrip("/")
 
 CATEGORIES = ["veterinary", "pet_care", "pet_store"]
 LABELS = {
@@ -116,7 +118,8 @@ def normalise(geo):
 
 def miles(lat1, lon1, lat2, lon2):
     p1, p2 = math.radians(lat1), math.radians(lat2)
-    h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * \
+        math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
     return 2 * 3958.8 * math.asin(math.sqrt(h))
 
 
@@ -162,7 +165,8 @@ def compute_grid(_features, vets, cell_miles):
     lon0, lon1, lat0, lat1 = bounds(_features)
     dlat = cell_miles / 69.0
     dlon = cell_miles / (69.17 * math.cos(math.radians((lat0 + lat1) / 2)))
-    vet_rows = list(vets[["dba_name", "full_business_address", "latitude", "longitude"]].itertuples(index=False))
+    vet_rows = list(vets[["dba_name", "full_business_address",
+                    "latitude", "longitude"]].itertuples(index=False))
     rows, r, lat = [], 0, lat0
     while lat < lat1:
         c, lon = 0, lon0
@@ -170,7 +174,8 @@ def compute_grid(_features, vets, cell_miles):
             clat, clon = lat + dlat / 2, lon + dlon / 2
             hood = find_hood(clon, clat, polys)
             if hood and vet_rows:
-                d, v = min(((miles(clat, clon, v[2], v[3]), v) for v in vet_rows), key=lambda t: t[0])
+                d, v = min(((miles(clat, clon, v[2], v[3]), v)
+                           for v in vet_rows), key=lambda t: t[0])
                 rows.append({
                     "cell_id": f"{r}_{c}", "neighborhood": hood,
                     "lon0": lon, "lon1": lon + dlon, "lat0": lat, "lat1": lat + dlat,
@@ -201,7 +206,8 @@ def outline_layer(geo, names, selected):
     return go.Choroplethmap(
         geojson=geo, featureidkey="properties.neighborhood", locations=names, z=[0] * len(names),
         colorscale=[[0, "white"], [1, "white"]], showscale=False, marker_opacity=0,
-        marker_line_color=["black" if n == selected else "#444" for n in names],
+        marker_line_color=["black" if n ==
+                           selected else "#444" for n in names],
         marker_line_width=[3 if n == selected else 1 for n in names],
         hoverinfo="skip", showlegend=False,
     )
@@ -219,26 +225,31 @@ except requests.RequestException as e:
 raw["latitude"] = pd.to_numeric(raw["latitude"], errors="coerce")
 raw["longitude"] = pd.to_numeric(raw["longitude"], errors="coerce")
 businesses = raw.dropna(subset=["neighborhood", "pet_category"])
-vets = raw[raw["pet_category"] == "veterinary"].dropna(subset=["latitude", "longitude"]).reset_index(drop=True)
+vets = raw[raw["pet_category"] == "veterinary"].dropna(
+    subset=["latitude", "longitude"]).reset_index(drop=True)
 
 features = geo.get("features", [])
 box = bounds(features)
-in_sf = bool(box) and SF_BOX[0] <= box[0] and box[1] <= SF_BOX[1] and SF_BOX[2] <= box[2] and box[3] <= SF_BOX[3]
+in_sf = bool(
+    box) and SF_BOX[0] <= box[0] and box[1] <= SF_BOX[1] and SF_BOX[2] <= box[2] and box[3] <= SF_BOX[3]
 names = [f["properties"]["neighborhood"] for f in features]
 
 # ------------------------------------------------------------------ sidebar
 st.sidebar.header("View")
-view = st.sidebar.radio("Map", [VIEW_COUNTS, VIEW_GRID, VIEW_TRACTS], label_visibility="collapsed")
+view = st.sidebar.radio(
+    "Map", [VIEW_COUNTS, VIEW_GRID, VIEW_TRACTS], label_visibility="collapsed")
 
 hood_names = sorted(counts["neighborhood"])
 if view == VIEW_TRACTS:
     selected = None
 else:
-    choice = st.sidebar.selectbox("Neighborhood", ["All neighborhoods"] + hood_names)
+    choice = st.sidebar.selectbox(
+        "Neighborhood", ["All neighborhoods"] + hood_names)
     selected = None if choice == "All neighborhoods" else choice
 
 if view == VIEW_COUNTS:
-    cats = st.sidebar.multiselect("Business type", CATEGORIES, default=CATEGORIES, format_func=LABELS.get)
+    cats = st.sidebar.multiselect(
+        "Business type", CATEGORIES, default=CATEGORIES, format_func=LABELS.get)
     if not cats:
         st.sidebar.warning("Pick at least one business type.")
         st.stop()
@@ -276,7 +287,8 @@ def finish_map(fig, center, zoom):
 
 def hood_view(selected):
     if selected:
-        sel_box = bounds([f for f in features if f["properties"]["neighborhood"] == selected])
+        sel_box = bounds(
+            [f for f in features if f["properties"]["neighborhood"] == selected])
         if sel_box:
             return view_for(sel_box)
     return view_for(box) if in_sf else (SF_CENTER, 11)
@@ -284,7 +296,8 @@ def hood_view(selected):
 
 # ============================================================ COUNTS VIEW
 if view == VIEW_COUNTS:
-    st.caption("Active registered businesses classified by NAICS code. Darker neighborhoods have more.")
+    st.caption(
+        "Active registered businesses classified by NAICS code. Darker neighborhoods have more.")
     counts = counts.copy()
     counts["total"] = counts[cats].sum(axis=1)
     places = businesses[businesses["pet_category"].isin(cats)]
@@ -297,7 +310,8 @@ if view == VIEW_COUNTS:
         for col, c in zip(cols[1:], cats):
             col.metric(LABELS[c], int(row[c]))
         rank = int((counts["total"] > row["total"]).sum()) + 1
-        st.caption(f"Ranks #{rank} of {len(counts)} neighborhoods for the selected types.")
+        st.caption(
+            f"Ranks #{rank} of {len(counts)} neighborhoods for the selected types.")
     else:
         c1, c2, c3 = st.columns(3)
         c1.metric("Pet-care businesses", int(counts["total"].sum()))
@@ -325,7 +339,8 @@ if view == VIEW_COUNTS:
         fig.add_trace(go.Scattermap(
             lat=d["latitude"], lon=d["longitude"], mode="markers", name=LABELS[c],
             marker={"size": 8, "color": COLORS[c]},
-            text=d["dba_name"] + "<br>" + d["full_business_address"].fillna(""),
+            text=d["dba_name"] + "<br>" +
+            d["full_business_address"].fillna(""),
             hovertemplate="%{text}<extra></extra>",
         ))
     finish_map(fig, *hood_view(selected))
@@ -334,7 +349,8 @@ if view == VIEW_COUNTS:
     with left:
         st.subheader("Businesses per neighborhood")
         chart = counts.set_index("neighborhood")[cats].rename(columns=LABELS)
-        chart = chart.loc[counts.set_index("neighborhood")["total"].sort_values(ascending=False).index]
+        chart = chart.loc[counts.set_index("neighborhood")[
+            "total"].sort_values(ascending=False).index]
         st.bar_chart(chart, horizontal=True, height=max(400, 22 * len(chart)))
     with right:
         st.subheader("Business list")
@@ -355,7 +371,8 @@ elif view == VIEW_GRID:
         "miles from each square's center to the closest vet."
     )
     if vets.empty or not features:
-        st.info("Need both neighborhood boundaries and vets with coordinates to build the grid.")
+        st.info(
+            "Need both neighborhood boundaries and vets with coordinates to build the grid.")
         st.stop()
 
     cells = compute_grid(features, vets, cell)
@@ -364,7 +381,8 @@ elif view == VIEW_GRID:
         st.stop()
     shown = cells if not selected else cells[cells["neighborhood"] == selected]
     if shown.empty:
-        st.info(f"No grid squares have their center in {selected}. Try a smaller square size.")
+        st.info(
+            f"No grid squares have their center in {selected}. Try a smaller square size.")
         st.stop()
 
     m1, m2, m3, m4 = st.columns(4)
@@ -381,10 +399,12 @@ elif view == VIEW_GRID:
         layer = go.Choroplethmap(
             geojson=gj, featureidkey="properties.id", locations=shown["cell_id"], z=shown["miles"],
             zmin=0, colorscale="YlOrRd", marker_opacity=0.7, marker_line_width=0.3, marker_line_color="white",
-            customdata=custom, hovertemplate=hover, colorbar={"title": "Miles to<br>closest vet"},
+            customdata=custom, hovertemplate=hover, colorbar={
+                "title": "Miles to<br>closest vet"},
         )
     else:
-        keys = shown["vet"] + "|" + shown["vet_lat"].astype(str) + "|" + shown["vet_lon"].astype(str)
+        keys = shown["vet"] + "|" + \
+            shown["vet_lat"].astype(str) + "|" + shown["vet_lon"].astype(str)
         codes, uniq = pd.factorize(keys)
         n = len(uniq)
         palette = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
@@ -416,40 +436,52 @@ elif view == VIEW_GRID:
         .rename(columns={"avg_miles": "avg distance (mi)", "farthest_miles": "farthest square (mi)"})
     )
     st.dataframe(summary, hide_index=True, width="stretch")
-    st.caption("Neighborhoods too small to contain a square center don't appear. Use a smaller square size to include them.")
+    st.caption(
+        "Neighborhoods too small to contain a square center don't appear. Use a smaller square size to include them.")
 
 # ============================================================ TRACTS VIEW
 else:
-    st.caption("One dot per census tract, at the tract's location. Dot size is population.")
+    st.caption(
+        "One dot per census tract, at the tract's location. Dot size is population.")
     try:
         tracts = pd.DataFrame(fetch("/census"))
     except requests.RequestException as e:
         st.error(f"Could not load /census: {e}")
         st.stop()
 
-    lat_col = next((c for c in ("lat", "latitude") if c in tracts.columns), None)
-    lon_col = next((c for c in ("lon", "longitude") if c in tracts.columns), None)
+    lat_col = next((c for c in ("lat", "latitude")
+                   if c in tracts.columns), None)
+    lon_col = next((c for c in ("lon", "longitude")
+                   if c in tracts.columns), None)
     if not lat_col or not lon_col:
-        st.error(f"/census has no lat/lon columns. Columns returned: {list(tracts.columns)}")
+        st.error(
+            f"/census has no lat/lon columns. Columns returned: {list(tracts.columns)}")
         st.stop()
 
     tracts["lat"] = pd.to_numeric(tracts[lat_col], errors="coerce")
     tracts["lon"] = pd.to_numeric(tracts[lon_col], errors="coerce")
-    tracts["population"] = pd.to_numeric(tracts["population"], errors="coerce").fillna(0)
+    tracts["population"] = pd.to_numeric(
+        tracts["population"], errors="coerce").fillna(0)
     tracts["income"] = pd.to_numeric(tracts["income"], errors="coerce")
-    tracts.loc[tracts["income"] < 0, "income"] = float("nan")  # census uses -666666666 for "no data"
-    tracts["tract"] = tracts["geoid"].astype(str) if "geoid" in tracts.columns else tracts.index.astype(str)
+    tracts.loc[tracts["income"] < 0, "income"] = float(
+        "nan")  # census uses -666666666 for "no data"
+    tracts["tract"] = tracts["geoid"].astype(
+        str) if "geoid" in tracts.columns else tracts.index.astype(str)
     # drop tracts with no location and the Farallon Islands tract, which is far outside the city
     tracts = tracts.dropna(subset=["lat", "lon"])
-    lim = box if box else SF_BOX  # the neighborhood boundaries' extent (a little padding below)
-    tracts = tracts[tracts["lon"].between(lim[0] - 0.02, lim[1] + 0.02) & tracts["lat"].between(lim[2] - 0.02, lim[3] + 0.02)]
+    # the neighborhood boundaries' extent (a little padding below)
+    lim = box if box else SF_BOX
+    tracts = tracts[tracts["lon"].between(
+        lim[0] - 0.02, lim[1] + 0.02) & tracts["lat"].between(lim[2] - 0.02, lim[3] + 0.02)]
     if tracts.empty:
         st.info("No census tracts with a location inside San Francisco.")
         st.stop()
 
-    by = st.sidebar.radio("Colour dots by", ["Median household income", "Population"])
+    by = st.sidebar.radio(
+        "Colour dots by", ["Median household income", "Population"])
     tracts = tracts.assign(
-        size=6 + 16 * (tracts["population"] / max(tracts["population"].max(), 1)) ** 0.5,
+        size=6 + 16 * (tracts["population"] /
+                       max(tracts["population"].max(), 1)) ** 0.5,
         text=("Tract " + tracts["tract"] + "<br>Population: " + tracts["population"].map("{:,.0f}".format)
               + "<br>Median income: " + tracts["income"].map(lambda v: "n/a" if pd.isna(v) else f"${v:,.0f}")),
     )
@@ -464,9 +496,11 @@ else:
         nodata = tracts[tracts["income"].isna()]
         if not nodata.empty:
             fig.add_trace(go.Scattermap(lat=nodata["lat"], lon=nodata["lon"], mode="markers", name="No income data",
-                                        marker={"size": nodata["size"], "color": "#999"},
+                                        marker={
+                                            "size": nodata["size"], "color": "#999"},
                                         text=nodata["text"], hovertemplate="%{text}<extra></extra>"))
-        d, color, title = tracts.dropna(subset=["income"]), "income", "Median<br>income ($)"
+        d, color, title = tracts.dropna(
+            subset=["income"]), "income", "Median<br>income ($)"
     else:
         d, color, title = tracts, "population", "Population"
     fig.add_trace(go.Scattermap(
@@ -483,11 +517,14 @@ else:
         st.info("No vets with coordinates, so distance can't be calculated.")
     else:
         near = [
-            min(((miles(t.lat, t.lon, v.latitude, v.longitude), v.dba_name) for v in vets.itertuples()), key=lambda x: x[0])
+            min(((miles(t.lat, t.lon, v.latitude, v.longitude), v.dba_name)
+                for v in vets.itertuples()), key=lambda x: x[0])
             for t in tracts.itertuples()
         ]
-        tracts = tracts.assign(vet_miles=[n[0] for n in near], vet_name=[n[1] for n in near])
-        d = tracts[tracts["income"] > 0]  # leaves out tracts with no income data
+        tracts = tracts.assign(vet_miles=[n[0] for n in near], vet_name=[
+                               n[1] for n in near])
+        # leaves out tracts with no income data
+        d = tracts[tracts["income"] > 0]
         if len(d) < 3:
             st.info("Not enough tracts with income data to plot.")
         else:
@@ -514,9 +551,10 @@ else:
                 "This shows an association only, and distances are measured from each tract's location point."
             )
 
-    cols = ["tract", "population", "income"] + (["vet_miles"] if "vet_miles" in tracts.columns else [])
+    cols = ["tract", "population", "income"] + \
+        (["vet_miles"] if "vet_miles" in tracts.columns else [])
    # st.dataframe(
-      #  tracts[cols].sort_values("population", ascending=False)
-      #  .rename(columns={"income": "median household income", "vet_miles": "miles to closest vet"}),
-       # hide_index=True, width="stretch",
+    #  tracts[cols].sort_values("population", ascending=False)
+    #  .rename(columns={"income": "median household income", "vet_miles": "miles to closest vet"}),
+    # hide_index=True, width="stretch",
    # )
