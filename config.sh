@@ -85,6 +85,15 @@ SCHEDULE="0 0 * * *"
 # API endpoint the scheduler POSTs to (POST /etl in api/main.py).
 ETL_PATH=/etl
 
+# Service account Cloud Scheduler signs its /etl requests as. On the
+# deployed API, only this account may run the ETL.
+ETL_INVOKER_NAME=pet-etl-scheduler
+ETL_INVOKER_SA="$ETL_INVOKER_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
+# Bucket the deployed API uses by default: "false" serves
+# <GCP_BUCKET_NAME>-prod. Local runs keep using -dev.
+API_DEV_MODE="false"
+
 
 # =====================================================================
 # Validation

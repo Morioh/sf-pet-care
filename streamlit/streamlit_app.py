@@ -1,15 +1,10 @@
 """Explore pet-care services in each San Francisco neighborhood.
 
+Note: this entire script was generated using AI, specifically Claude Sonnet 5.5.
 
+These are the most important prompts that were used:
 
-
-
-"""
-Note : this entire script was generated using AI, specifically Claude Sonnet 5.5
-
-These are the most important prompts that were used: 
-
-"right now the map isn't on top of any boundaries of SF or map underlying it, can we change that" 
+"right now the map isn't on top of any boundaries of SF or map underlying it, can we change that"
 
 "ok can you one feature: closest vets to each area which encloses each area with the vet closest to it"
 
@@ -20,10 +15,6 @@ These are the most important prompts that were used:
 "how can I compare the census tracts and income to pet access"
 
 "do the scatter plot, below the map of the census tracts and income"
-
-
-
-Explore pet-care services in each San Francisco neighborhood.
 
 Three views:
   * Neighborhood counts  - pet-care businesses per neighborhood, with dots for each business
@@ -76,7 +67,14 @@ st.set_page_config(page_title="SF Pet Care by Neighborhood", layout="wide")
 @st.cache_data(ttl=600, show_spinner="Loading data...")
 def fetch(path):
     r = requests.get(f"{API_URL}{path}", timeout=60)
-    r.raise_for_status()
+    if not r.ok:
+        # Show the API's own explanation (e.g. "No data yet: run the ETL
+        # first") rather than just the HTTP status line.
+        try:
+            detail = r.json()["detail"]
+        except (ValueError, KeyError, TypeError):
+            r.raise_for_status()
+        raise requests.HTTPError(f"{r.status_code}: {detail}", response=r)
     return r.json()
 
 
@@ -219,7 +217,7 @@ try:
     counts = pd.DataFrame(fetch("/processed"))
     raw = pd.DataFrame(fetch("/businesses"))
 except requests.RequestException as e:
-    st.error(f"Could not reach the API at {API_URL}: {e}")
+    st.error(f"Could not load data from the API at {API_URL}: {e}")
     st.stop()
 
 raw["latitude"] = pd.to_numeric(raw["latitude"], errors="coerce")

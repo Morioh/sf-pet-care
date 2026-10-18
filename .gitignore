@@ -16,3 +16,7 @@ data/raw/
 
 # macOS
 .DS_Store
+
+# Report source (binary, edited in Pages). Kept in the shared Drive;
+# the repo keeps only the exported docs/report.pdf.
+*.pages
