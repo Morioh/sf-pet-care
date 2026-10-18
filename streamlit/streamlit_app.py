@@ -1,5 +1,30 @@
 """Explore pet-care services in each San Francisco neighborhood.
 
+
+
+
+
+"""
+Note : this entire script was generated using AI, specifically Claude Sonnet 5.5
+
+These are the most important prompts that were used: 
+
+"right now the map isn't on top of any boundaries of SF or map underlying it, can we change that" 
+
+"ok can you one feature: closest vets to each area which encloses each area with the vet closest to it"
+
+"no that's not granular enough create a bunch of small grids (SF is 49 square miles so maybe squares of 0.25 square miles and figure out the closest for each"
+
+"ok i changed it so acs_data.py now returns a lon and lat column, please add the tracts, but no funny business or new api calls, use the data I have"
+
+"how can I compare the census tracts and income to pet access"
+
+"do the scatter plot, below the map of the census tracts and income"
+
+
+
+Explore pet-care services in each San Francisco neighborhood.
+
 Three views:
   * Neighborhood counts  - pet-care businesses per neighborhood, with dots for each business
   * Census tracts        - one dot per census tract from /census (needs lat/lon columns), sized by population
@@ -68,8 +93,7 @@ def coords(geom):
 
 
 def bounds(features):
-    pts = [c for f in features if f.get("geometry")
-           for c in coords(f["geometry"])]
+    pts = [c for f in features if f.get("geometry") for c in coords(f["geometry"])]
     if not pts:
         return None
     xs, ys = zip(*pts)
